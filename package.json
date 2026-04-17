@@ -1,0 +1,24 @@
+{
+  "name": "curalink",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI-powered MERN medical research assistant prototype.",
+  "workspaces": [
+    "client",
+    "server"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev --workspace server\" \"npm run dev --workspace client\"",
+    "build": "npm run build --workspace server && npm run build --workspace client",
+    "test": "npm test --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "server": "npm run dev --workspace server",
+    "client": "npm run dev --workspace client"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  },
+  "engines": {
+    "node": ">=20.11.0"
+  }
+}

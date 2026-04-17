@@ -1,0 +1,119 @@
+Overview
+Build a **full-stack  AI-powered Medical Research Assistant Prorotype** using the
+MERN stack, powered by a **custom open-source LLM**.
+This system should act as a **health research companion** that:
+Understands user context → retrieves high-quality medical research → reasons over it
+→ delivers structured, personalized, and source-backed answers.
+This is not just a chatbot — it is a **research + reasoning system**.
+
+# **Objective**
+Design a system that can:
+- Accept **user medical context (disease, intent, optional location)**
+- Fetch **relevant research publications and clinical trials**
+- Deliver **structured, high-quality, research-backed answers**
+- Maintain **context across conversations**
+- Provide **deep, personalized insights instead of generic responses**
+
+You must build a **working MERN stack application**: Application Should:
+- Provide chatbot interface
+- Accept structured + natural queries
+- Display:
+    - Publications
+    - Clinical trials
+- Support follow-up questions
+- Show structured responses with sources
+
+## Structured Input Understanding + Query Expansion
+Your system must handle both structured and natural queries.
+### Example Input
+- Patient Name: John Smith
+- Disease of Interest: Parkinson’s disease
+- Additional Query: Deep Brain Stimulation
+- Location: Toronto, Canada
+### Output Should Combine
+- Relevant **publications**
+- Relevant **clinical trials**
+Your system must use:
+- **OpenAlex API** → research publications
+- **PubMed API** → research publications
+- **ClinicalTrials.gov API** → clinical trials
+### Publications Must Include
+- Title
+- Abstract / Summary
+- Authors
+- Publication Year
+- Source (PubMed / OpenAlex)
+- URL
+### Retrieval Expectation (Important)
+❌ Avoid:
+- Fetching only top 1–2 results based on user query
+✅ Expected:
+- Retrieve a **broad candidate pool (50–300 results)**
+- Then:
+    - Filter
+    - Rank
+    - Refine
+- Ultimately in final response show only top 6-8 publications or clinical trails
+### Clinical Trial Data Must Include:
+- Title
+- Recruiting Status
+- Eligibility Criteria
+- Location
+- Contact Information
+
+## Intelligent Retrieval + Re-Ranking
+Your system must:
+- Retrieve **large sets**
+- Apply **strong filtering and ranking**
+Ranking factors should include:
+- Relevance to query
+- Recency
+- Source credibility
+You are free to decide:
+- Embeddings vs keyword vs hybrid search
+- Vector DB vs direct API processing
+- Real-time vs stored data
+
+## Custom LLM Reasoning (Strict Requirement)
+You must use a **custom or open-source LLM**.
+Allowed:
+- Local models (e.g., Ollama)
+- Hugging Face models
+- Or any way of creating custom llm
+### What the LLM Must Do
+- Understand:
+    - Disease
+    - User intent
+    - Context
+- Combine:
+    - Publications
+    - Clinical trials
+- Generate: Structured, accurate, **non-hallucinated responses**
+The system must support multi-turn conversations.
+### Expected Behavior
+- Use previous context (lung cancer)
+- Re-run retrieval if needed
+- Generate a **personalized, research-backed response**
+The system should act like a **user-aware assistant**:
+- Understand user condition
+- Adapt answers accordingly
+- Improve relevance over time
+## Structured Output
+Each response should include:
+- Condition Overview
+- Research Insights (from publications)
+- Clinical Trials (if applicable)
+- Source Attribution
+
+## System Design
+You are free to decide:
+- Real-time vs stored data
+- Embeddings vs non-embeddings
+- Chunking strategy
+- Ranking pipeline
+But you must clearly demonstrate:
+- Strong reasoning
+- Smart trade-offs
+- Scalability thinking
+
+PROJECT NEEDS TO BE HOSTED.
