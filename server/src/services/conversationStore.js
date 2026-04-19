@@ -41,3 +41,12 @@ export async function saveConversation(conversation) {
   memoryStore.set(payload.sessionId, payload);
   return payload;
 }
+
+export async function deleteConversation(sessionId) {
+  if (isMongoReady()) {
+    await Conversation.deleteOne({ sessionId });
+    return true;
+  }
+
+  return memoryStore.delete(sessionId);
+}

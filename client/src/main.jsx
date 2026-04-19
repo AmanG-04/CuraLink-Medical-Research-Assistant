@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
 
@@ -74,6 +74,12 @@ function getSessionId() {
   return next;
 }
 
+function createSessionId() {
+  const next = crypto.randomUUID();
+  localStorage.setItem(SESSION_KEY, next);
+  return next;
+}
+
 function isSkip(value = "") {
   return /^(skip|none|no|na|n\/a)$/i.test(value.trim());
 }
@@ -93,7 +99,7 @@ async function apiRequest(path, options = {}) {
 }
 
 function App() {
-  const sessionId = useMemo(getSessionId, []);
+  const [sessionId, setSessionId] = useState(() => getSessionId());
   const [persona, setPersona] = useState("");
   const [draft, setDraft] = useState({
     patientName: "",
@@ -110,15 +116,25 @@ function App() {
   const [latestSources, setLatestSources] = useState({ publications: [], clinicalTrials: [] });
   const [status, setStatus] = useState("idle");
   const [error, setError] = useState("");
+  const messagesRef = useRef(null);
 
   const selectedPersona = personas[persona];
   const currentStep = intakeSteps[stepIndex];
   const isResearchReady = stepIndex >= intakeSteps.length;
   const displayTurns = [...localTurns, ...serverTurns];
 
+  useEffect(() => {
+    const node = messagesRef.current;
+    if (!node) return;
+    node.scrollTop = node.scrollHeight;
+  }, [displayTurns.length, status]);
+
   function choosePersona(nextPersona) {
     localStorage.setItem(`${SESSION_KEY}-persona`, nextPersona);
     setPersona(nextPersona);
+    setDraft({ patientName: "", disease: "", symptoms: "", location: "", question: "" });
+    setStepIndex(0);
+    setInput("");
     setLocalTurns([
       {
         role: "assistant",
@@ -126,12 +142,34 @@ function App() {
         createdAt: new Date().toISOString()
       }
     ]);
+    setServerTurns([]);
+    setContext({});
+    setLatestSources({ publications: [], clinicalTrials: [] });
+    setStatus("idle");
+    setError("");
   }
 
-  function resetSession() {
+  async function resetSession() {
+    try {
+      await apiRequest(`/api/conversations/${sessionId}`, { method: "DELETE" });
+    } catch {
+      // Ignore reset errors and still clear the local state.
+    }
+
     localStorage.removeItem(SESSION_KEY);
     localStorage.removeItem(`${SESSION_KEY}-persona`);
-    window.location.reload();
+    const nextSessionId = createSessionId();
+    setSessionId(nextSessionId);
+    setPersona("");
+    setDraft({ patientName: "", disease: "", symptoms: "", location: "", question: "" });
+    setStepIndex(0);
+    setInput("");
+    setLocalTurns([]);
+    setServerTurns([]);
+    setContext({});
+    setLatestSources({ publications: [], clinicalTrials: [] });
+    setStatus("idle");
+    setError("");
   }
 
   async function submit(event, preset) {
@@ -148,6 +186,12 @@ function App() {
     }
 
     await runResearch(value, draft);
+  }
+
+  function handleTextareaKeyDown(event) {
+    if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
+    event.preventDefault();
+    submit(undefined, event.currentTarget.value);
   }
 
   async function handleIntakeValue(value) {
@@ -173,7 +217,8 @@ function App() {
     if (nextPrompt) nextTurns.push(assistantTurn(nextPrompt));
 
     if (nextStepIndex >= intakeSteps.length) {
-      await runResearch(nextDraft.question, nextDraft, localTurns);
+      setLocalTurns(nextTurns);
+      await runResearch(nextDraft.question, nextDraft, nextTurns);
     } else {
       setLocalTurns(nextTurns);
     }
@@ -238,9 +283,13 @@ function App() {
 
         <section className="chat-grid">
           <section className="chat-panel">
-            <div className="messages" aria-live="polite">
+            <div className="messages" aria-live="polite" ref={messagesRef}>
               {displayTurns.map((turn, index) => (
-                <article className={`message ${turn.role}`} key={`${turn.role}-${index}-${turn.createdAt}`}>
+                <article
+                  className={`message ${turn.role}`}
+                  key={`${turn.role}-${index}-${turn.createdAt}`}
+                  style={{ animationDelay: `${Math.min(index, 8) * 35}ms` }}
+                >
                   <span>{turn.role === "user" ? "You" : "CuraLink"}</span>
                   <div className="message-body">
                     {turn.role === "assistant" && turn.answer ? (
@@ -253,28 +302,30 @@ function App() {
               ))}
 
               {status === "loading" && (
-                <div className="progress-strip">
-                  Retrieving publications, comparing clinical trials, and asking the LLM to reason over the sources.
+                <div className="loading-state" role="status" aria-live="polite" aria-label="Generating answer">
+                  <div className="loading-pill">
+                    <span className="dot dot-1" />
+                    <span className="dot dot-2" />
+                    <span className="dot dot-3" />
+                    <span>Researching</span>
+                  </div>
+                  <div className="loading-pill loading-pill-soft">
+                    <span className="dot dot-1" />
+                    <span className="dot dot-2" />
+                    <span className="dot dot-3" />
+                    <span>Drafting answer</span>
+                  </div>
                 </div>
               )}
             </div>
 
             {error && <div className="error-banner">{error}</div>}
 
-            {isResearchReady && (
-              <div className="starter-row" aria-label="Suggested follow-up questions">
-                {selectedPersona.samples.map((prompt) => (
-                  <button key={prompt} type="button" onClick={(event) => submit(event, prompt)}>
-                    {prompt}
-                  </button>
-                ))}
-              </div>
-            )}
-
             <form className="message-form" onSubmit={submit}>
               <textarea
                 value={input}
                 onChange={(event) => setInput(event.target.value)}
+                onKeyDown={handleTextareaKeyDown}
                 placeholder={isResearchReady ? "Ask a follow-up question" : currentStep?.placeholder || selectedPersona.placeholder}
                 rows={3}
               />

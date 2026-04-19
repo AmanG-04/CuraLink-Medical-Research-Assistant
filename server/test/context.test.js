@@ -63,4 +63,16 @@ describe("research context", () => {
   it("extracts location hints from natural questions", () => {
     expect(extractLocation("Find trials near Toronto, Canada")).toBe("Toronto, Canada");
   });
+
+  it("treats how-to-fix kidney stone questions as treatment intent", () => {
+    const context = buildResearchContext(
+      { disease: "kidney stones", message: "how to fix", symptoms: "pain" },
+      {}
+    );
+
+    expect(context.intent).toBe("treatment management");
+    expect(context.retrievalQuery.toLowerCase()).toContain("kidney stones");
+    expect(context.retrievalQuery.toLowerCase()).toContain("nephrolithiasis");
+    expect(context.retrievalQuery.toLowerCase()).toContain("pain management");
+  });
 });

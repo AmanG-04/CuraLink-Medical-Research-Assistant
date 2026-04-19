@@ -3,6 +3,7 @@ import { z } from "zod";
 import { buildResearchContext } from "../services/context.js";
 import { getConversation, saveConversation } from "../services/conversationStore.js";
 import { generateAnswer } from "../services/llm.js";
+import { decideResearchPlan, noResearchResponse } from "../services/researchPlanner.js";
 import { retrieveAndRank } from "../services/retrieval.js";
 
 const chatSchema = z.object({
@@ -24,7 +25,7 @@ chatRouter.post("/", async (req, res, next) => {
     const conversation = await getConversation(input.sessionId);
     const context = buildResearchContext(input, conversation.context);
 
-    if (!context.query) {
+    if (!context.query && !context.question) {
       return res.status(400).json({
         error: "Please provide a disease, research focus, or natural-language question."
       });
@@ -38,21 +39,59 @@ chatRouter.post("/", async (req, res, next) => {
       createdAt: new Date().toISOString()
     };
 
-    const retrieval = await retrieveAndRank(context);
+    const plan = decideResearchPlan({
+      message: input.message,
+      context,
+      conversation
+    });
+
+    const emptySources = { publications: [], clinicalTrials: [] };
+    const cachedSources = conversation.cachedRetrieval?.selectedSources || emptySources;
+    const cachedStats = conversation.cachedRetrieval?.stats || {
+      openAlex: { ok: false, count: 0, error: "No cached retrieval" },
+      pubMed: { ok: false, count: 0, error: "No cached retrieval" },
+      clinicalTrials: { ok: false, count: 0, error: "No cached retrieval" },
+      candidatePoolSize: 0,
+      selectedCount: 0
+    };
+
+    let retrieval = {
+      candidates: { publications: [], clinicalTrials: [] },
+      selectedSources: emptySources,
+      stats: cachedStats
+    };
+
+    if (plan.action === "fresh") {
+      retrieval = await retrieveAndRank(context);
+    } else if (plan.action === "cached") {
+      retrieval = {
+        candidates: conversation.cachedRetrieval?.candidates || { publications: [], clinicalTrials: [] },
+        selectedSources: cachedSources,
+        stats: {
+          ...cachedStats,
+          fromCache: true
+        }
+      };
+    }
+
     let answer;
-    try {
-      answer = await generateAnswer({
-        context,
-        message: input.message,
-        history: conversation.turns,
-        sources: retrieval.selectedSources,
-        stats: retrieval.stats
-      });
-    } catch (error) {
-      return res.status(502).json({
-        error: "LLM generation failed. CuraLink is configured to require the LLM.",
-        details: error.message
-      });
+    if (plan.action === "none") {
+      answer = noResearchResponse();
+    } else {
+      try {
+        answer = await generateAnswer({
+          context,
+          message: input.message,
+          history: conversation.turns,
+          sources: retrieval.selectedSources,
+          stats: retrieval.stats
+        });
+      } catch (error) {
+        return res.status(502).json({
+          error: "LLM generation failed. CuraLink is configured to require the LLM.",
+          details: error.message
+        });
+      }
     }
 
     const assistantTurn = {
@@ -62,6 +101,7 @@ chatRouter.post("/", async (req, res, next) => {
       context,
       sources: retrieval.selectedSources,
       retrievalStats: retrieval.stats,
+      researchPlan: plan,
       createdAt: new Date().toISOString()
     };
 
@@ -69,13 +109,16 @@ chatRouter.post("/", async (req, res, next) => {
       ...conversation,
       context,
       turns: [...(conversation.turns || []), userTurn, assistantTurn],
-      cachedRetrieval: {
-        context,
-        stats: retrieval.stats,
-        candidates: retrieval.candidates,
-        selectedSources: retrieval.selectedSources,
-        cachedAt: new Date().toISOString()
-      }
+      cachedRetrieval:
+        plan.action === "fresh"
+          ? {
+              context,
+              stats: retrieval.stats,
+              candidates: retrieval.candidates,
+              selectedSources: retrieval.selectedSources,
+              cachedAt: new Date().toISOString()
+            }
+          : conversation.cachedRetrieval || {}
     };
 
     const saved = await saveConversation(updatedConversation);

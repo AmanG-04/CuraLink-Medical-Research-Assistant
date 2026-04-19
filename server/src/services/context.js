@@ -40,6 +40,12 @@ function extractAgeYears(message = "") {
   return null;
 }
 
+function isTreatmentQuestion(message = "") {
+  return /\b(how to fix|how to treat|how to manage|how do i fix|what helps|what can i do|how to relieve|how to stop)\b/i.test(
+    cleanText(message)
+  );
+}
+
 function expandQueryTerms({ condition, intent, message }) {
   const expansions = new Set();
   const ageYears = extractAgeYears(message);
@@ -65,6 +71,17 @@ function expandQueryTerms({ condition, intent, message }) {
     expansions.add("ophthalmology");
   }
 
+  if (condition && condition.toLowerCase().includes("kidney stone")) {
+    expansions.add("kidney stones");
+    expansions.add("nephrolithiasis");
+    expansions.add("renal colic");
+    expansions.add("stone removal");
+    expansions.add("ureteroscopy");
+    expansions.add("lithotripsy");
+    expansions.add("hydration");
+    expansions.add("pain management");
+  }
+
   if (intent) expansions.add(intent);
   if (condition) expansions.add(condition);
   return [...expansions].filter(Boolean);
@@ -74,7 +91,11 @@ function buildRetrievalQuery({ condition, intent, message, symptoms }) {
   const expandedTerms = expandQueryTerms({ condition, intent, message: [message, symptoms].filter(Boolean).join(" ") });
   // Use keywords as a stable, API-friendly query string (avoid full raw questions).
   const keywords = [...keywordSet(condition, intent, symptoms, message, ...expandedTerms)];
-  const primary = [condition, intent].filter(Boolean).join(" ");
+  const conditionLower = (condition || "").toLowerCase();
+  const painBoost = conditionLower.includes("kidney stone") && /\bpain\b/i.test([message, symptoms].filter(Boolean).join(" "))
+    ? "pain management"
+    : "";
+  const primary = [condition, intent, symptoms, painBoost].filter(Boolean).join(" ");
   const keywordString = keywords.slice(0, 14).join(" ");
   const expandedString = expandedTerms.slice(0, 6).join(" ");
   return [primary, keywordString, expandedString].filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
@@ -100,6 +121,10 @@ export function extractIntent(message = "", condition = "") {
   const cleaned = cleanText(message);
   if (!cleaned) return "";
 
+  if (isTreatmentQuestion(cleaned)) {
+    return condition ? "treatment management" : "management";
+  }
+
   const withoutCondition = condition ? cleaned.replace(new RegExp(condition, "i"), " ") : cleaned;
   const explicit = withoutCondition.match(/\b(?:focus|query|about|intervention|treatment)\s*(?:is|:)?\s*([A-Za-z0-9][A-Za-z0-9\s'-]{2,100})/i);
   if (explicit) return cleanText(explicit[1]);
@@ -122,7 +147,9 @@ export function buildResearchContext(input, previous = {}) {
   const structuredIntent = cleanText(input.additionalQuery || "");
   // If the user asks a direct question (especially on the first turn) without a research focus,
   // don't treat the full question text as the "intent/intervention".
-  const intent = structuredIntent || (messageIsQuestion ? previous.intent || "" : extractedIntent || previous.intent || "");
+  const intent = structuredIntent || (messageIsQuestion && !isTreatmentQuestion(message)
+    ? previous.intent || ""
+    : extractedIntent || previous.intent || "");
   const location = cleanText(input.location || "") || extractLocation(message) || previous.location || "";
   const patientName = cleanText(input.patientName || "") || previous.patientName || "";
   const symptoms = cleanText(input.symptoms || "") || previous.symptoms || "";
