@@ -297,6 +297,26 @@ function summarizePublications(items = []) {
     .join("; ");
 }
 
+function firstSummarySentence(text = "") {
+  const cleaned = String(text || "").replace(/\s+/g, " ").trim();
+  if (!cleaned) return "No abstract details were available from the source.";
+  const sentence = cleaned.match(/^(.{24,260}?[.!?])(?:\s|$)/)?.[1] || cleaned.slice(0, 220);
+  return sentence.trim();
+}
+
+function publicationNarrative(items = []) {
+  return items
+    .slice(0, 3)
+    .map((item, index) => {
+      const citation = `[P${index + 1}]`;
+      const yearPart = item.year ? `${item.year}` : "year unknown";
+      const sourcePart = item.source || "source";
+      const finding = firstSummarySentence(item.summary);
+      return `${citation} ${item.title} (${sourcePart}, ${yearPart}) suggests: ${finding}`;
+    })
+    .join(" ");
+}
+
 function summarizeTrials(items = []) {
   return items
     .slice(0, 3)
@@ -330,6 +350,7 @@ function fallbackStructuredAnswer({ context, sources }) {
   const focusLabel = context.intent || context.symptoms || context.question || "the question";
   const topPublications = matchedPublications.slice(0, 3);
   const topTrials = matchedTrials.slice(0, 3);
+  const leadingTakeaway = firstSummarySentence(topPublications[0]?.summary || "");
 
   const publicationSummary = topPublications
     .map((item, index) => {
@@ -349,7 +370,7 @@ function fallbackStructuredAnswer({ context, sources }) {
 
   const overview = hasPublications
     ? latestTreatmentQuery
-      ? `You asked about ${focusLabel} for ${conditionLabel}. The newest retrieved publications suggest the most current treatment directions and should be read as a practical summary of what has changed most recently [P1][P2].`
+      ? `You asked about ${focusLabel} for ${conditionLabel}. The newest retrieved publications suggest the most current treatment directions and should be read as a practical summary of what has changed most recently [P1][P2]. A concrete takeaway from the latest evidence is: ${leadingTakeaway} [P1].`
       : isClinician
       ? `You asked about ${focusLabel} in ${conditionLabel}. The retrieved literature supports a signal of benefit, but interpretability is constrained by heterogeneous populations, intervention protocols, and follow-up windows across studies [P1][P2].`
       : `You asked about ${focusLabel} for ${conditionLabel}. The studies we found suggest there is useful evidence to guide next steps, but there is not one single perfect answer because study groups and methods differ [P1][P2].`
@@ -357,7 +378,7 @@ function fallbackStructuredAnswer({ context, sources }) {
 
   const insights = hasPublications
     ? latestTreatmentQuery
-      ? `Latest publication summary: ${summarizePublications(matchedPublications)}. These are the newest papers in the shortlist and they show the current treatment picture more clearly than older background sources [P1][P2][P3].`
+      ? `Here is what the latest shortlisted publications are actually saying: ${publicationNarrative(matchedPublications)} Together, these studies outline where current treatment direction is moving, while still needing clinician-level interpretation for patient-specific decisions [P1][P2][P3].`
       : isClinician
       ? `Start with these sources for an evidence scan: ${publicationSummary}. Cross-reading is important because endpoint definitions and longitudinal follow-up differ, which likely explains variation in reported effect magnitude [P1][P2]. Limitation: the retrieved set is informative but not a full systematic review [P1].`
       : `A practical way to review this is to start with: ${publicationSummary}. These papers look at somewhat different outcomes and timelines, so they point in a similar direction but with different confidence levels [P1][P2].`

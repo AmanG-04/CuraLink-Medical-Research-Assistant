@@ -227,7 +227,9 @@ describe("llm answer coercion", () => {
     );
 
     expect(answer).toContain("newest retrieved publications");
-    expect(answer).toContain("Latest publication summary");
+    expect(answer).toContain("A concrete takeaway from the latest evidence is");
+    expect(answer).toContain("latest shortlisted publications are actually saying");
     expect(answer).toContain("Newest lung cancer therapy");
+    expect(answer).toContain("suggests:");
   });
 });
