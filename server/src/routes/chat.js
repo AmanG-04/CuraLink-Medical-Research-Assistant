@@ -7,9 +7,11 @@ import { retrieveAndRank } from "../services/retrieval.js";
 
 const chatSchema = z.object({
   sessionId: z.string().min(4),
+  userType: z.enum(["patient", "clinician"]).optional().default("patient"),
   message: z.string().optional().default(""),
   patientName: z.string().optional().default(""),
   disease: z.string().optional().default(""),
+  symptoms: z.string().optional().default(""),
   additionalQuery: z.string().optional().default(""),
   location: z.string().optional().default("")
 });

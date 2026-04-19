@@ -4,15 +4,19 @@ import { buildResearchContext, extractLocation } from "../src/services/context.j
 describe("research context", () => {
   it("uses structured fields ahead of natural-language extraction", () => {
     const context = buildResearchContext({
+      userType: "clinician",
       patientName: "John Smith",
       disease: "Parkinson disease",
+      symptoms: "tremor and rigidity",
       additionalQuery: "Deep brain stimulation",
       location: "Toronto, Canada",
       message: "What does the latest research say?"
     });
 
+    expect(context.userType).toBe("clinician");
     expect(context.patientName).toBe("John Smith");
     expect(context.condition).toBe("Parkinson disease");
+    expect(context.symptoms).toBe("tremor and rigidity");
     expect(context.intent).toBe("Deep brain stimulation");
     expect(context.location).toBe("Toronto, Canada");
     expect(context.query).toBe("Parkinson disease Deep brain stimulation");

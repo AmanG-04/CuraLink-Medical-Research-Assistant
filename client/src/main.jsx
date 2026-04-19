@@ -1,9 +1,70 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
 const SESSION_KEY = "curalink-session-id";
+
+const personas = {
+  patient: {
+    label: "Patients and caregivers",
+    shortLabel: "Patient",
+    intro:
+      "I can help translate current research into plain language and look for trial options that may fit your context.",
+    placeholder: "Type a name, or say skip",
+    samples: ["Can cataracts happen at 21?", "Are there trials near Toronto?", "What should I ask my doctor?"]
+  },
+  clinician: {
+    label: "Clinicians and researchers",
+    shortLabel: "Clinician",
+    intro:
+      "I can help scan publications, compare trial options, and summarize evidence with structured citations.",
+    placeholder: "Type a label, or say skip",
+    samples: ["Compare DBS trials in Parkinson disease", "Rank recent GLP-1 obesity papers", "Find recruiting ALS trials"]
+  }
+};
+
+const intakeSteps = [
+  {
+    key: "patientName",
+    prompt: "Hi, I am CuraLink. What name or label should I use for this research conversation?",
+    placeholder: "Type a name, or say skip",
+    optional: true,
+    normalize(value) {
+      return isSkip(value) ? "" : value;
+    }
+  },
+  {
+    key: "disease",
+    prompt: "What condition or disease should I research?",
+    placeholder: "Example: kidney stones, cataract, Parkinson disease",
+    requiredMessage: "Please share a condition so I can retrieve relevant medical research."
+  },
+  {
+    key: "symptoms",
+    prompt: "What symptoms, stage, age, or extra context should I keep in mind?",
+    placeholder: "Example: severe pain, 21 years old, recurrent episodes, or skip",
+    optional: true,
+    normalize(value) {
+      return isSkip(value) ? "" : value;
+    }
+  },
+  {
+    key: "location",
+    prompt: "Where should I look for trial options? You can give a city/country or say skip.",
+    placeholder: "Example: India, Toronto Canada, or skip",
+    optional: true,
+    normalize(value) {
+      return isSkip(value) ? "" : value;
+    }
+  },
+  {
+    key: "question",
+    prompt: "What research question should I answer first?",
+    placeholder: "Example: how to prevent it?",
+    requiredMessage: "Please ask a research question so I can start."
+  }
+];
 
 function getSessionId() {
   const existing = localStorage.getItem(SESSION_KEY);
@@ -11,6 +72,10 @@ function getSessionId() {
   const next = crypto.randomUUID();
   localStorage.setItem(SESSION_KEY, next);
   return next;
+}
+
+function isSkip(value = "") {
+  return /^(skip|none|no|na|n\/a)$/i.test(value.trim());
 }
 
 async function apiRequest(path, options = {}) {
@@ -21,234 +86,282 @@ async function apiRequest(path, options = {}) {
 
   if (!response.ok) {
     const payload = await response.json().catch(() => ({}));
-    throw new Error(payload.error || `Request failed with ${response.status}`);
+    throw new Error(payload.details || payload.error || `Request failed with ${response.status}`);
   }
 
   return response.json();
 }
 
-const starterPrompts = [
-  "What does recent evidence say about DBS outcomes?",
-  "Are there recruiting trials near this location?",
-  "What risks or limitations do the papers mention?"
-];
-
 function App() {
   const sessionId = useMemo(getSessionId, []);
-  const [form, setForm] = useState({
+  const [persona, setPersona] = useState("");
+  const [draft, setDraft] = useState({
     patientName: "",
     disease: "",
-    additionalQuery: "",
-    location: ""
+    symptoms: "",
+    location: "",
+    question: ""
   });
-  const [message, setMessage] = useState("");
-  const [turns, setTurns] = useState([]);
+  const [stepIndex, setStepIndex] = useState(0);
+  const [input, setInput] = useState("");
+  const [localTurns, setLocalTurns] = useState([]);
+  const [serverTurns, setServerTurns] = useState([]);
   const [context, setContext] = useState({});
+  const [latestSources, setLatestSources] = useState({ publications: [], clinicalTrials: [] });
   const [status, setStatus] = useState("idle");
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    apiRequest(`/api/conversations/${sessionId}`)
-      .then((payload) => {
-        setTurns(payload.turns || []);
-        setContext(payload.context || {});
-      })
-      .catch(() => {
-        setTurns([]);
-      });
-  }, [sessionId]);
+  const selectedPersona = personas[persona];
+  const currentStep = intakeSteps[stepIndex];
+  const isResearchReady = stepIndex >= intakeSteps.length;
+  const displayTurns = [...localTurns, ...serverTurns];
 
-  const latestAssistantTurn = [...turns].reverse().find((turn) => turn.role === "assistant");
-  const latestSources = latestAssistantTurn?.sources || { publications: [], clinicalTrials: [] };
-
-  function updateForm(event) {
-    setForm((current) => ({ ...current, [event.target.name]: event.target.value }));
+  function choosePersona(nextPersona) {
+    localStorage.setItem(`${SESSION_KEY}-persona`, nextPersona);
+    setPersona(nextPersona);
+    setLocalTurns([
+      {
+        role: "assistant",
+        message: intakeSteps[0].prompt,
+        createdAt: new Date().toISOString()
+      }
+    ]);
   }
 
-  async function submitChat(event, presetMessage) {
+  function resetSession() {
+    localStorage.removeItem(SESSION_KEY);
+    localStorage.removeItem(`${SESSION_KEY}-persona`);
+    window.location.reload();
+  }
+
+  async function submit(event, preset) {
     event?.preventDefault();
-    const outgoingMessage = presetMessage ?? message;
-    if (!outgoingMessage.trim() && !form.disease.trim() && !form.additionalQuery.trim()) {
-      setError("Add a disease, research focus, or question to begin.");
+    const value = (preset ?? input).trim();
+    if (!value || status === "loading") return;
+
+    setError("");
+    setInput("");
+
+    if (!isResearchReady) {
+      await handleIntakeValue(value);
       return;
     }
 
-    setError("");
+    await runResearch(value, draft);
+  }
+
+  async function handleIntakeValue(value) {
+    const step = intakeSteps[stepIndex];
+    const normalized = step.normalize ? step.normalize(value) : value;
+
+    if (!normalized && !step.optional) {
+      setLocalTurns((turns) => [
+        ...turns,
+        userTurn(value),
+        assistantTurn(step.requiredMessage || "I need that before I can continue.")
+      ]);
+      return;
+    }
+
+    const nextDraft = { ...draft, [step.key]: normalized };
+    const nextStepIndex = stepIndex + 1;
+    setDraft(nextDraft);
+    setStepIndex(nextStepIndex);
+
+    const nextPrompt = intakeSteps[nextStepIndex]?.prompt;
+    const nextTurns = [...localTurns, userTurn(value)];
+    if (nextPrompt) nextTurns.push(assistantTurn(nextPrompt));
+
+    if (nextStepIndex >= intakeSteps.length) {
+      await runResearch(nextDraft.question, nextDraft, localTurns);
+    } else {
+      setLocalTurns(nextTurns);
+    }
+  }
+
+  async function runResearch(question, contextDraft, preservedLocalTurns = localTurns) {
     setStatus("loading");
-    const optimisticUserTurn = {
-      role: "user",
-      message: outgoingMessage || [form.disease, form.additionalQuery].filter(Boolean).join(" - "),
-      createdAt: new Date().toISOString()
-    };
-    setTurns((current) => [...current, optimisticUserTurn]);
-    setMessage("");
+    const optimisticTurn = userTurn(question);
+    if (isResearchReady) setServerTurns((turns) => [...turns, optimisticTurn]);
 
     try {
       const payload = await apiRequest("/api/chat", {
         method: "POST",
         body: JSON.stringify({
           sessionId,
-          message: outgoingMessage,
-          ...form
+          userType: persona,
+          patientName: contextDraft.patientName,
+          disease: contextDraft.disease,
+          symptoms: contextDraft.symptoms,
+          location: contextDraft.location,
+          message: question
         })
       });
 
       setContext(payload.context || {});
-      setTurns(payload.turns || []);
+      setLatestSources(payload.sources || { publications: [], clinicalTrials: [] });
+      setServerTurns(payload.turns || []);
+      setLocalTurns(preservedLocalTurns);
     } catch (err) {
       setError(err.message);
-      setTurns((current) => current.filter((turn) => turn !== optimisticUserTurn));
+      setLocalTurns((turns) => [
+        ...turns,
+        assistantTurn(`I could not generate the answer yet: ${err.message}`)
+      ]);
+      if (isResearchReady) {
+        setServerTurns((turns) => turns.filter((turn) => turn !== optimisticTurn));
+      }
     } finally {
       setStatus("idle");
     }
   }
 
-  function clearLocalSession() {
-    localStorage.removeItem(SESSION_KEY);
-    window.location.reload();
+  if (!persona) {
+    return <LandingPage onChoose={choosePersona} />;
   }
 
   return (
     <main className="app-shell">
-      <section className="assistant-layout" aria-label="CuraLink research assistant">
-        <aside className="context-rail">
-          <div className="brand-block">
+      <section className="chat-page" aria-label="CuraLink medical research assistant">
+        <header className="app-header">
+          <div>
             <span className="eyebrow">CuraLink</span>
-            <h1>Medical research companion</h1>
-            <p>
-              Bring a condition, a research angle, and a location. CuraLink gathers
-              publications and trials, then answers with citations.
-            </p>
+            <h1>{selectedPersona.label}</h1>
           </div>
-
-          <img
-            className="research-image"
-            src="https://images.unsplash.com/photo-1579165466741-7f35e4755660?auto=format&fit=crop&w=900&q=80"
-            alt="Researcher working in a medical laboratory"
-          />
-
-          <form className="structured-form" onSubmit={submitChat}>
-            <label>
-              Patient name
-              <input
-                name="patientName"
-                value={form.patientName}
-                onChange={updateForm}
-                placeholder="John Smith"
-              />
-            </label>
-            <label>
-              Disease of interest
-              <input
-                name="disease"
-                value={form.disease}
-                onChange={updateForm}
-                placeholder="Parkinson disease"
-              />
-            </label>
-            <label>
-              Research focus
-              <input
-                name="additionalQuery"
-                value={form.additionalQuery}
-                onChange={updateForm}
-                placeholder="Deep brain stimulation"
-              />
-            </label>
-            <label>
-              Location
-              <input
-                name="location"
-                value={form.location}
-                onChange={updateForm}
-                placeholder="Toronto, Canada"
-              />
-            </label>
-            <button type="submit" disabled={status === "loading"}>
-              {status === "loading" ? "Researching..." : "Start research"}
-            </button>
-          </form>
-
-          <div className="context-summary">
-            <span>Current context</span>
-            <strong>{context.condition || "No condition yet"}</strong>
-            <p>{[context.intent, context.location].filter(Boolean).join(" / ") || "Follow-up context will appear here."}</p>
-          </div>
-        </aside>
-
-        <section className="chat-workspace">
-          <div className="chat-header">
-            <div>
-              <span className="eyebrow">Source-backed chat</span>
-              <h2>Ask a research question</h2>
-            </div>
-            <button className="secondary-button" type="button" onClick={clearLocalSession}>
-              New session
+          <div className="header-actions">
+            <span>{selectedPersona.shortLabel} mode</span>
+            <button className="secondary-button" type="button" onClick={resetSession}>
+              New path
             </button>
           </div>
+        </header>
 
-          <div className="starter-row" aria-label="Suggested follow-up questions">
-            {starterPrompts.map((prompt) => (
-              <button
-                key={prompt}
-                type="button"
-                onClick={(event) => submitChat(event, prompt)}
-                disabled={status === "loading"}
-              >
-                {prompt}
-              </button>
-            ))}
-          </div>
+        <section className="chat-grid">
+          <section className="chat-panel">
+            <div className="messages" aria-live="polite">
+              {displayTurns.map((turn, index) => (
+                <article className={`message ${turn.role}`} key={`${turn.role}-${index}-${turn.createdAt}`}>
+                  <span>{turn.role === "user" ? "You" : "CuraLink"}</span>
+                  <div className="message-body">
+                    {turn.role === "assistant" && turn.answer ? (
+                      <StructuredAnswer answer={turn.answer} />
+                    ) : (
+                      <p>{turn.answer || turn.message}</p>
+                    )}
+                  </div>
+                </article>
+              ))}
 
-          <div className="messages" aria-live="polite">
-            {turns.length === 0 && (
-              <div className="empty-state">
-                <h3>Try the sample brief</h3>
-                <p>Parkinson disease, deep brain stimulation, Toronto, Canada.</p>
-              </div>
-            )}
-
-            {turns.map((turn, index) => (
-              <article className={`message ${turn.role}`} key={`${turn.role}-${index}-${turn.createdAt}`}>
-                <span>{turn.role === "user" ? "You" : "CuraLink"}</span>
-                <div className="message-body">
-                  {turn.role === "assistant" ? (
-                    <StructuredAnswer answer={turn.answer || turn.message} />
-                  ) : (
-                    <p>{turn.message}</p>
-                  )}
+              {status === "loading" && (
+                <div className="progress-strip">
+                  Retrieving publications, comparing clinical trials, and asking the LLM to reason over the sources.
                 </div>
-              </article>
-            ))}
+              )}
+            </div>
 
-            {status === "loading" && (
-              <div className="progress-strip">
-                Retrieving a broad candidate pool, ranking sources, and drafting a grounded answer.
+            {error && <div className="error-banner">{error}</div>}
+
+            {isResearchReady && (
+              <div className="starter-row" aria-label="Suggested follow-up questions">
+                {selectedPersona.samples.map((prompt) => (
+                  <button key={prompt} type="button" onClick={(event) => submit(event, prompt)}>
+                    {prompt}
+                  </button>
+                ))}
               </div>
             )}
-          </div>
 
-          {error && <div className="error-banner">{error}</div>}
+            <form className="message-form" onSubmit={submit}>
+              <textarea
+                value={input}
+                onChange={(event) => setInput(event.target.value)}
+                placeholder={isResearchReady ? "Ask a follow-up question" : currentStep?.placeholder || selectedPersona.placeholder}
+                rows={3}
+              />
+              <button type="submit" disabled={status === "loading" || !input.trim()}>
+                {status === "loading" ? "Working..." : "Send"}
+              </button>
+            </form>
+          </section>
 
-          <form className="message-form" onSubmit={submitChat}>
-            <textarea
-              value={message}
-              onChange={(event) => setMessage(event.target.value)}
-              placeholder="Ask a follow-up, such as: What are the most common risks?"
-              rows={3}
-            />
-            <button type="submit" disabled={status === "loading"}>
-              Send
-            </button>
-          </form>
+          <aside className="source-rail">
+            <ContextSnapshot context={{ ...draft, ...context }} persona={selectedPersona.shortLabel} />
+            <SourceList title="Publications" items={latestSources.publications || []} type="publication" />
+            <SourceList title="Clinical trials" items={latestSources.clinicalTrials || []} type="trial" />
+          </aside>
         </section>
-
-        <aside className="source-rail">
-          <SourceList title="Publications" items={latestSources.publications || []} type="publication" />
-          <SourceList title="Clinical trials" items={latestSources.clinicalTrials || []} type="trial" />
-        </aside>
       </section>
     </main>
+  );
+}
+
+function LandingPage({ onChoose }) {
+  return (
+    <main className="landing-shell">
+      <section className="landing-hero">
+        <div className="landing-copy">
+          <span className="eyebrow">CuraLink</span>
+          <h1>Choose your research path</h1>
+          <p>
+            Start with the kind of evidence support you need. CuraLink will ask for the right context in chat,
+            then retrieve publications and clinical trials with citations.
+          </p>
+        </div>
+        <img
+          src="https://images.unsplash.com/photo-1576671081837-49000212a370?auto=format&fit=crop&w=1200&q=80"
+          alt="Clinical research team reviewing medical evidence"
+        />
+      </section>
+
+      <section className="persona-options" aria-label="Choose user type">
+        <button className="persona-card" type="button" onClick={() => onChoose("patient")}>
+          <span>Path 1</span>
+          <strong>Patients and caregivers</strong>
+          <p>Understand evidence, personalize around symptoms and location, and explore possible trial options.</p>
+        </button>
+        <button className="persona-card" type="button" onClick={() => onChoose("clinician")}>
+          <span>Path 2</span>
+          <strong>Clinicians and researchers</strong>
+          <p>Scan publications, compare trials, inspect ranking quality, and keep citations structured.</p>
+        </button>
+      </section>
+    </main>
+  );
+}
+
+function userTurn(message) {
+  return { role: "user", message, createdAt: new Date().toISOString() };
+}
+
+function assistantTurn(message) {
+  return { role: "assistant", message, createdAt: new Date().toISOString() };
+}
+
+function ContextSnapshot({ context, persona }) {
+  const rows = [
+    ["Mode", persona],
+    ["Name", context.patientName],
+    ["Condition", context.condition],
+    ["Symptoms", context.symptoms],
+    ["Location", context.location]
+  ].filter(([, value]) => value);
+
+  return (
+    <section className="context-card">
+      <div className="source-heading">
+        <h2>Context</h2>
+        <span>{rows.length}</span>
+      </div>
+      {rows.length === 0 ? (
+        <p className="quiet">Context will build as the chat begins.</p>
+      ) : (
+        rows.map(([label, value]) => (
+          <p key={label}>
+            <strong>{label}:</strong> {value}
+          </p>
+        ))
+      )}
+    </section>
   );
 }
 

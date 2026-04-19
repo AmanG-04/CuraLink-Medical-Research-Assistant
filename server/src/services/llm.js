@@ -18,12 +18,19 @@ export function buildLlmPrompt({ context, message, history, sources }) {
     .join("\n");
 
   const question = message || context.question || context.query;
+  const audienceInstruction =
+    context.userType === "clinician"
+      ? "Audience: clinician/researcher. Prioritize evidence scan, ranking rationale, study/trial details, source quality, limitations, and structured citations. Use concise technical language."
+      : "Audience: patient/caregiver. Use plain language, explain terms, personalize gently using provided context, and keep clinical advice cautious.";
 
   return `You are CuraLink, a medical research assistant. Use only the provided sources. Do not diagnose, prescribe, or claim certainty beyond the evidence. If evidence is missing, say "Not enough evidence".
+${audienceInstruction}
 
 Patient/research context:
+- User type: ${context.userType || "patient"}
 - Patient name: ${context.patientName || "not provided"}
 - Condition: ${context.condition || "not provided"}
+- Symptoms/context: ${context.symptoms || "not provided"}
 - Research focus (topic/intervention): ${context.intent || "not provided"}
 - Location: ${context.location || "not provided"}
 

@@ -70,10 +70,10 @@ function expandQueryTerms({ condition, intent, message }) {
   return [...expansions].filter(Boolean);
 }
 
-function buildRetrievalQuery({ condition, intent, message }) {
-  const expandedTerms = expandQueryTerms({ condition, intent, message });
+function buildRetrievalQuery({ condition, intent, message, symptoms }) {
+  const expandedTerms = expandQueryTerms({ condition, intent, message: [message, symptoms].filter(Boolean).join(" ") });
   // Use keywords as a stable, API-friendly query string (avoid full raw questions).
-  const keywords = [...keywordSet(condition, intent, message, ...expandedTerms)];
+  const keywords = [...keywordSet(condition, intent, symptoms, message, ...expandedTerms)];
   const primary = [condition, intent].filter(Boolean).join(" ");
   const keywordString = keywords.slice(0, 14).join(" ");
   const expandedString = expandedTerms.slice(0, 6).join(" ");
@@ -125,13 +125,17 @@ export function buildResearchContext(input, previous = {}) {
   const intent = structuredIntent || (messageIsQuestion ? previous.intent || "" : extractedIntent || previous.intent || "");
   const location = cleanText(input.location || "") || extractLocation(message) || previous.location || "";
   const patientName = cleanText(input.patientName || "") || previous.patientName || "";
-  const keywords = [...keywordSet(condition, intent, message)];
+  const symptoms = cleanText(input.symptoms || "") || previous.symptoms || "";
+  const userType = input.userType || previous.userType || "patient";
+  const keywords = [...keywordSet(condition, intent, symptoms, message)];
   const query = [condition, intent].filter(Boolean).join(" ");
-  const retrievalQuery = buildRetrievalQuery({ condition, intent, message });
+  const retrievalQuery = buildRetrievalQuery({ condition, intent, symptoms, message });
 
   return {
+    userType,
     patientName,
     condition,
+    symptoms,
     intent,
     location,
     query: query || message,
