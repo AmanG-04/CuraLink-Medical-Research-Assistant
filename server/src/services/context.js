@@ -46,6 +46,31 @@ function extractAgeYears(message = "") {
   return null;
 }
 
+function parsePatientProfile(profile = "") {
+  const cleaned = cleanText(profile);
+  if (!cleaned) {
+    return { age: "", comorbidities: "", medications: "" };
+  }
+
+  const ageMatch = cleaned.match(/\b(\d{1,3})\b/);
+  const age = ageMatch ? ageMatch[1] : "";
+  const parts = cleaned
+    .split(/[;|\n]/)
+    .flatMap((segment) => segment.split(/\s*,\s*/))
+    .map((part) => cleanText(part))
+    .filter(Boolean);
+
+  const medicationHints = /(levodopa|carbidopa|warfarin|apixaban|rivaroxaban|dabigatran|steroid|prednisone|insulin|metformin|aspirin|clopidogrel|anticoagulant|antiplatelet|dopamine|maoi|ssri|snri|benzodiazepine|opioid|antipsychotic)/i;
+  const medications = parts.filter((part) => medicationHints.test(part)).join(", ");
+  const comorbidities = parts.filter((part) => !medicationHints.test(part) && !/^\d{1,3}$/.test(part)).join(", ");
+
+  return {
+    age,
+    comorbidities,
+    medications
+  };
+}
+
 function isTreatmentQuestion(message = "") {
   return /\b(how to fix|how to treat|how to manage|how do i fix|what helps|what can i do|how to relieve|how to stop)\b/i.test(
     cleanText(message)
@@ -156,9 +181,11 @@ export function buildResearchContext(input, previous = {}) {
   const extractedIntent = (isQuestionFollowUp && !preserveFollowUpIntent) ? "" : extractIntent(message, condition);
   const structuredIntent = cleanText(input.additionalQuery || "");
   const specialtyRole = cleanText(input.specialtyRole || "") || previous.specialtyRole || "";
-  const patientAge = cleanText(input.patientAge || "") || previous.patientAge || "";
-  const patientComorbidities = cleanText(input.patientComorbidities || "") || previous.patientComorbidities || "";
-  const patientMedications = cleanText(input.patientMedications || "") || previous.patientMedications || "";
+  const profileInput = cleanText(input.patientProfile || "") || [input.patientAge, input.patientComorbidities, input.patientMedications].filter(Boolean).join(", ");
+  const parsedProfile = parsePatientProfile(profileInput);
+  const patientAge = cleanText(input.patientAge || "") || parsedProfile.age || previous.patientAge || "";
+  const patientComorbidities = cleanText(input.patientComorbidities || "") || parsedProfile.comorbidities || previous.patientComorbidities || "";
+  const patientMedications = cleanText(input.patientMedications || "") || parsedProfile.medications || previous.patientMedications || "";
   const clinicalQuestionType = cleanText(input.clinicalQuestionType || "") || previous.clinicalQuestionType || "";
   const referralMode = input.referralMode ?? previous.referralMode ?? input.userType === "clinician";
   // If the user asks a direct question (especially on the first turn) without a research focus,
@@ -186,6 +213,7 @@ export function buildResearchContext(input, previous = {}) {
     patientComorbidities,
     patientMedications,
     clinicalQuestionType,
+    patientProfile: profileInput,
     symptoms,
     intent,
     location,

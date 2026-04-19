@@ -56,28 +56,6 @@ a {
   min-height: 100vh;
 }
 
-.warmup-notice {
-  background: #fff5dc;
-  border-bottom: 1px solid #ead9a8;
-  color: #6a4b00;
-  font-size: 0.82rem;
-  font-weight: 700;
-  padding: 0.48rem 0.85rem;
-  text-align: center;
-}
-
-.warmup-ready {
-  background: #e6f7f0;
-  border-bottom-color: #b8dfcf;
-  color: #0f5c4f;
-}
-
-.warmup-error {
-  background: #ffeceb;
-  border-bottom-color: #f2bbb7;
-  color: #8f2a22;
-}
-
 .landing-shell {
   background: #f6f3ec;
   display: grid;

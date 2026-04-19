@@ -92,6 +92,7 @@ Rules:
 - If the sources do not answer the question, say "Not enough evidence" and explain what is missing.
 - Write in complete natural prose. Avoid robotic labels like "signals" or "candidate pool".
 - Do not add extra headings beyond the four required sections.
+- If there is no exact trial match, say that clearly and present the closest related trials instead of leaving the section empty.
 
 ${styleInstruction}`;
 }
@@ -200,7 +201,10 @@ function isAnswerUsable(answer, sources) {
   if (hasDegenerateNumberList(answer)) return false;
 
   const sourceCount = (sources?.publications || []).length + (sources?.clinicalTrials || []).length;
-  if (sourceCount > 0 && !hasSourceCitation(answer) && !appearsAllDefaultSections(answer)) return false;
+  if (sourceCount > 0 && !hasSourceCitation(answer)) {
+    if (appearsAllDefaultSections(answer) && (sources?.clinicalTrials || []).length === 0) return true;
+    return false;
+  }
   return true;
 }
 
@@ -279,11 +283,16 @@ function relevantSources(items = [], context = {}, type = "publication") {
 function fallbackStructuredAnswer({ context, sources }) {
   const matchedPublications = relevantSources(sources?.publications || [], context, "publication");
   const matchedTrials = relevantSources(sources?.clinicalTrials || [], context, "clinicalTrial");
+  const relatedTrials = (sources?.clinicalTrials || []).slice(0, 3);
   const publicationRefs = shortSourceList(matchedPublications, "publication");
   const trialRefs = shortSourceList(matchedTrials, "clinicalTrial");
   const hasPublications = Boolean(matchedPublications.length);
   const hasTrials = Boolean(matchedTrials.length);
+  const hasAnyTrials = Boolean((sources?.clinicalTrials || []).length);
   const isClinician = context.userType === "clinician";
+  const wantsMatching = /\b(fit|match|eligible|eligibility|screen|screening)\b/i.test(
+    [context.question, context.intent, context.clinicalQuestionType].filter(Boolean).join(" ")
+  );
 
   const conditionLabel = context.condition || "the condition";
   const focusLabel = context.intent || context.symptoms || context.question || "the question";
@@ -319,10 +328,16 @@ function fallbackStructuredAnswer({ context, sources }) {
     : "Not enough evidence.";
 
   const trials = hasTrials
-    ? isClinician
-      ? `Most relevant trial matches: ${trialSummary}. For operational referral, prioritize currently recruiting or active cohorts with local access; for evidence synthesis, prioritize completed trials with result availability and protocol clarity [T1].`
-      : `These trial options are the closest matches right now: ${trialSummary}. If you want to join a study, first check recruiting status and eligibility; if you want to understand results, focus on completed studies [T1].`
-    : "Not enough evidence.";
+    ? `${wantsMatching ? "I couldn’t find an exact trial match, but here are the closest trial matches:" : isClinician ? "Most relevant trial matches:" : "These trial options are the closest matches right now:"} ${trialSummary}. ${isClinician ? "For operational referral, prioritize currently recruiting or active cohorts with local access; for evidence synthesis, prioritize completed trials with result availability and protocol clarity [T1]." : "If you want to join a study, first check recruiting status and eligibility; if you want to understand results, focus on completed studies [T1]."}`
+    : hasAnyTrials
+      ? `${isClinician ? "I couldn’t find an exact trial match for this referral, but these related trials are the closest available options:" : "I couldn’t find an exact trial match, but these related studies are the closest options I found:"} ${relatedTrials
+          .map((item, index) => {
+            const citation = `[T${index + 1}]`;
+            const place = item.location ? ` in ${item.location}` : "";
+            return `${citation} ${item.title} (${item.status || "status unknown"})${place}`;
+          })
+          .join("; ")}.`
+      : "Not enough evidence.";
 
   const attribution = [publicationRefs, trialRefs].filter(Boolean).join("; ") || "Not enough evidence. Please verify sources in the side panel.";
 

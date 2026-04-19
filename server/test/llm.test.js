@@ -149,4 +149,44 @@ describe("llm answer coercion", () => {
     expect(answer).toContain("[P2] DBS cognition review");
     expect(answer).not.toContain("Source Attribution:\nNot enough evidence.");
   });
+
+  it("mentions related trials when no exact match is found", async () => {
+    const fetcher = async () =>
+      new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: [
+                  "Condition Overview: Not enough evidence.",
+                  "Research Insights: Not enough evidence.",
+                  "Clinical Trials: Not enough evidence.",
+                  "Source Attribution: Not enough evidence."
+                ].join("\n")
+              }
+            }
+          ]
+        }),
+        { headers: { "Content-Type": "application/json" } }
+      );
+
+    const answer = await generateAnswer(
+      {
+        context: { condition: "Parkinson disease", question: "which trials fit", userType: "clinician" },
+        message: "which trials fit",
+        history: [],
+        sources: {
+          publications: [],
+          clinicalTrials: [
+            { id: "T1", title: "Related DBS trial", status: "RECRUITING", location: "Canada" },
+            { id: "T2", title: "Another related trial", status: "COMPLETED", location: "Canada" }
+          ]
+        }
+      },
+      fetcher
+    );
+
+    expect(answer).toContain("I couldn’t find an exact trial match");
+    expect(answer).toContain("[T1] Related DBS trial");
+  });
 });

@@ -84,27 +84,9 @@ const clinicianIntakeSteps = [
     requiredMessage: "Please share the patient condition so I can filter trials."
   },
   {
-    key: "patientAge",
-    prompt: "What is the patient age or age range?",
-    placeholder: "Example: 67, 18-35, or skip",
-    optional: true,
-    normalize(value) {
-      return isSkip(value) ? "" : value;
-    }
-  },
-  {
-    key: "patientComorbidities",
-    prompt: "Any important comorbidities or exclusion concerns?",
-    placeholder: "Example: diabetes, CKD, prior stroke, or skip",
-    optional: true,
-    normalize(value) {
-      return isSkip(value) ? "" : value;
-    }
-  },
-  {
-    key: "patientMedications",
-    prompt: "What current medications should I screen against trial criteria?",
-    placeholder: "Example: levodopa, warfarin, steroids, or skip",
+    key: "patientProfile",
+    prompt: "What patient profile details should I consider? Include age, comorbidities, and current medications, or say skip for any part.",
+    placeholder: "Example: 50, diabetes, levodopa, warfarin",
     optional: true,
     normalize(value) {
       return isSkip(value) ? "" : value;
@@ -145,9 +127,7 @@ function emptyDraft() {
     patientName: "",
     specialtyRole: "",
     disease: "",
-    patientAge: "",
-    patientComorbidities: "",
-    patientMedications: "",
+    patientProfile: "",
     clinicalQuestionType: "",
     symptoms: "",
     location: "",
@@ -217,7 +197,6 @@ function App() {
   const [latestSources, setLatestSources] = useState({ publications: [], clinicalTrials: [] });
   const [status, setStatus] = useState("idle");
   const [error, setError] = useState("");
-  const [warmupStatus, setWarmupStatus] = useState("waking");
   const messagesRef = useRef(null);
 
   const selectedPersona = personas[persona];
@@ -233,20 +212,13 @@ function App() {
   }, [displayTurns.length, status]);
 
   useEffect(() => {
-    let cancelled = false;
-
     (async () => {
       try {
         await wakeBackend();
-        if (!cancelled) setWarmupStatus("ready");
       } catch {
-        if (!cancelled) setWarmupStatus("error");
+        // Silent warmup failure is fine; the user-facing retry path already explains delays.
       }
     })();
-
-    return () => {
-      cancelled = true;
-    };
   }, []);
 
   function choosePersona(nextPersona) {
@@ -359,9 +331,7 @@ function App() {
           patientName: contextDraft.patientName,
           specialtyRole: contextDraft.specialtyRole,
           disease: contextDraft.disease,
-          patientAge: contextDraft.patientAge,
-          patientComorbidities: contextDraft.patientComorbidities,
-          patientMedications: contextDraft.patientMedications,
+          patientProfile: contextDraft.patientProfile,
           clinicalQuestionType: contextDraft.clinicalQuestionType,
           symptoms: contextDraft.symptoms,
           location: contextDraft.location,
@@ -392,17 +362,11 @@ function App() {
   }
 
   if (!persona) {
-    return (
-      <>
-        <WarmupNotice status={warmupStatus} />
-        <LandingPage onChoose={choosePersona} />
-      </>
-    );
+    return <LandingPage onChoose={choosePersona} />;
   }
 
   return (
     <main className="app-shell">
-      <WarmupNotice status={warmupStatus} />
       <section className="chat-page" aria-label="CuraLink medical research assistant">
         <header className="app-header">
           <div>
@@ -484,18 +448,6 @@ function App() {
       </section>
     </main>
   );
-}
-
-function WarmupNotice({ status }) {
-  if (status === "ready") {
-    return <div className="warmup-notice warmup-ready">Backend ready.</div>;
-  }
-
-  if (status === "error") {
-    return <div className="warmup-notice warmup-error">Could not wake backend yet. First response may be delayed on free tier.</div>;
-  }
-
-  return <div className="warmup-notice">Waking backend. On free tier, first request can take up to a minute.</div>;
 }
 
 function LandingPage({ onChoose }) {

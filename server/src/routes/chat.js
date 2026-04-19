@@ -13,6 +13,7 @@ const chatSchema = z.object({
   patientName: z.string().optional().default(""),
   specialtyRole: z.string().optional().default(""),
   disease: z.string().optional().default(""),
+  patientProfile: z.string().optional().default(""),
   patientAge: z.string().optional().default(""),
   patientComorbidities: z.string().optional().default(""),
   patientMedications: z.string().optional().default(""),
