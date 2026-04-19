@@ -203,7 +203,7 @@ function App() {
   const intakeSteps = useMemo(() => buildIntakeSteps(persona), [persona]);
   const currentStep = intakeSteps[stepIndex];
   const isResearchReady = stepIndex >= intakeSteps.length;
-  const displayTurns = [...localTurns, ...serverTurns];
+  const displayTurns = mergeTurns([...localTurns, ...serverTurns]);
 
   useEffect(() => {
     const node = messagesRef.current;
@@ -224,7 +224,9 @@ function App() {
   function choosePersona(nextPersona) {
     localStorage.setItem(`${SESSION_KEY}-persona`, nextPersona);
     const nextSteps = buildIntakeSteps(nextPersona);
+    const nextSessionId = createSessionId();
     setPersona(nextPersona);
+    setSessionId(nextSessionId);
     setDraft(emptyDraft());
     setStepIndex(0);
     setInput("");
@@ -490,6 +492,28 @@ function userTurn(message) {
 
 function assistantTurn(message) {
   return { role: "assistant", message, createdAt: new Date().toISOString() };
+}
+
+function mergeTurns(turns) {
+  const merged = [];
+
+  for (const turn of turns) {
+    const previous = merged[merged.length - 1];
+    const currentKey = turnKey(turn);
+    const previousKey = previous ? turnKey(previous) : "";
+
+    if (previous && currentKey === previousKey) {
+      continue;
+    }
+
+    merged.push(turn);
+  }
+
+  return merged;
+}
+
+function turnKey(turn = {}) {
+  return [turn.role, turn.message || turn.answer || "", turn.createdAt || ""].join("|");
 }
 
 function ContextSnapshot({ context, persona }) {
