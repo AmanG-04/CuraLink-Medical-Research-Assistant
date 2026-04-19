@@ -106,6 +106,6 @@ describe("research planner", () => {
     expect(response).toContain("Research Insights:");
     expect(response).toContain("Clinical Trials:");
     expect(response).toContain("Source Attribution:");
-    expect(response).toContain("Safety Note:");
+    expect(response).not.toContain("Safety Note:");
   });
 });

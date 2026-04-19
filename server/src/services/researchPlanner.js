@@ -95,7 +95,6 @@ export function noResearchResponse() {
     "Condition Overview: I can help with evidence-based medical research questions. Share a condition, a focus area, or a follow-up question to begin.",
     "Research Insights: Not enough evidence. No medical research sources were requested for this turn.",
     "Clinical Trials: Not enough evidence. Add a condition and optional location to search ClinicalTrials.gov.",
-    "Source Attribution: No sources were retrieved in this turn.",
-    "Safety Note: General information only and not medical advice. For personal care decisions, consult a qualified clinician."
+    "Source Attribution: No sources were retrieved in this turn."
   ].join("\n\n");
 }

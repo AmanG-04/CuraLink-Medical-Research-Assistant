@@ -75,6 +75,17 @@ function trialStatusScore(status = "") {
   return 0.2;
 }
 
+function locationAliases(location = "") {
+  const normalized = String(location || "").toLowerCase().trim();
+  if (!normalized) return [];
+
+  if (["usa", "us", "u.s.", "u.s", "united states", "united states of america", "america"].includes(normalized)) {
+    return ["usa", "us", "u.s.", "u.s", "united states", "united states of america", "america"];
+  }
+
+  return [normalized];
+}
+
 export function rankClinicalTrials(trials, context) {
   const keywords = keywordSet(
     context.condition,
@@ -82,13 +93,15 @@ export function rankClinicalTrials(trials, context) {
     context.retrievalQuery,
     ...(context.keywords || [])
   );
-  const locationNeedle = (context.location || "").toLowerCase();
+  const locationNeedles = locationAliases(context.location);
 
   return trials
     .map((trial) => {
       const text = `${trial.title} ${trial.summary} ${trial.eligibility} ${trial.location}`;
       const relevance = keywordScore(text, keywords);
-      const locationScore = locationNeedle && trial.location?.toLowerCase().includes(locationNeedle) ? 1 : 0;
+      const locationText = (trial.location || "").toLowerCase();
+      const locationScore =
+        locationNeedles.length > 0 && locationNeedles.some((needle) => locationText.includes(needle)) ? 1 : 0;
       const score =
         relevance * 0.43 +
         trialStatusScore(trial.status) * 0.24 +
@@ -104,8 +117,8 @@ export function rankClinicalTrials(trials, context) {
 
 export function selectTopSources(publications, clinicalTrials, limit = 8) {
   const selected = [];
-  const topPubs = publications.slice(0, Math.min(6, publications.length));
-  const topTrials = clinicalTrials.slice(0, Math.min(2, clinicalTrials.length));
+  const topPubs = publications.slice(0, Math.min(5, publications.length));
+  const topTrials = clinicalTrials.slice(0, Math.min(3, clinicalTrials.length));
 
   selected.push(...topPubs, ...topTrials);
 

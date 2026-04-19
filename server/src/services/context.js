@@ -29,6 +29,12 @@ function isQuestion(message = "") {
   return /^(what|how|why|when|where|are|is|can|could|should|does|do|did|will|would|may)\b/i.test(cleaned);
 }
 
+function isInterventionFollowUpQuestion(message = "") {
+  const cleaned = cleanText(message);
+  if (!cleaned) return false;
+  return /\b(vitamin|supplement|drug|medication|medicine|dose|dosing|therapy|treatment|take|use|start|stop|switch|combine|interact|side effect|risk|benefit|how to fix|how to treat|how to manage|what helps|how to relieve)\b/i.test(cleaned);
+}
+
 function extractAgeYears(message = "") {
   const cleaned = cleanText(message);
   const match = cleaned.match(/\b(\d{1,3})\s*(?:yo|y\/o|yr|yrs|year|years)\b/i);
@@ -126,6 +132,9 @@ export function extractIntent(message = "", condition = "") {
   }
 
   const withoutCondition = condition ? cleaned.replace(new RegExp(condition, "i"), " ") : cleaned;
+  const intervention = withoutCondition.match(/\b(?:take|use|try|start|stop|add|avoid)\s+([A-Za-z0-9][A-Za-z0-9\s'-]{2,80})/i);
+  if (intervention) return cleanText(intervention[1]);
+
   const explicit = withoutCondition.match(/\b(?:focus|query|about|intervention|treatment)\s*(?:is|:)?\s*([A-Za-z0-9][A-Za-z0-9\s'-]{2,100})/i);
   if (explicit) return cleanText(explicit[1]);
 
@@ -143,11 +152,12 @@ export function buildResearchContext(input, previous = {}) {
   const messageIsQuestion = isQuestion(message);
   const isQuestionFollowUp = isFollowUp && messageIsQuestion;
   const condition = cleanText(input.disease || "") || extractCondition(message) || previous.condition || "";
-  const extractedIntent = isQuestionFollowUp ? "" : extractIntent(message, condition);
+  const preserveFollowUpIntent = isQuestionFollowUp && isInterventionFollowUpQuestion(message);
+  const extractedIntent = (isQuestionFollowUp && !preserveFollowUpIntent) ? "" : extractIntent(message, condition);
   const structuredIntent = cleanText(input.additionalQuery || "");
   // If the user asks a direct question (especially on the first turn) without a research focus,
   // don't treat the full question text as the "intent/intervention".
-  const intent = structuredIntent || (messageIsQuestion && !isTreatmentQuestion(message)
+  const intent = structuredIntent || (messageIsQuestion && !isInterventionFollowUpQuestion(message)
     ? previous.intent || ""
     : extractedIntent || previous.intent || "");
   const location = cleanText(input.location || "") || extractLocation(message) || previous.location || "";

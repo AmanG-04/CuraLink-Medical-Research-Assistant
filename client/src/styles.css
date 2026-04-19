@@ -374,6 +374,14 @@ input:focus {
   transform: translateY(-1px);
 }
 
+.chat-disclaimer {
+  color: #6d7b76;
+  font-size: 0.68rem;
+  line-height: 1.3;
+  margin: 0;
+  text-align: center;
+}
+
 .source-rail {
   display: grid;
   gap: 1rem;

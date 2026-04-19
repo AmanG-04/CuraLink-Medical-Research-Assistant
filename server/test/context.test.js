@@ -64,6 +64,20 @@ describe("research context", () => {
     expect(extractLocation("Find trials near Toronto, Canada")).toBe("Toronto, Canada");
   });
 
+  it("updates intent for intervention-style follow-up questions", () => {
+    const previous = {
+      condition: "Parkinson disease",
+      intent: "DBS",
+      location: "Toronto"
+    };
+
+    const context = buildResearchContext({ message: "can i take vitamin d" }, previous);
+
+    expect(context.condition).toBe("Parkinson disease");
+    expect(context.intent.toLowerCase()).toContain("vitamin d");
+    expect(context.isFollowUp).toBe(true);
+  });
+
   it("treats how-to-fix kidney stone questions as treatment intent", () => {
     const context = buildResearchContext(
       { disease: "kidney stones", message: "how to fix", symptoms: "pain" },

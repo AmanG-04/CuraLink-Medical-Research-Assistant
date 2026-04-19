@@ -77,6 +77,38 @@ describe("ranking", () => {
     expect(ranked[0].id).toBe("NCT1");
   });
 
+  it("matches USA aliases against United States trial locations", () => {
+    const ranked = rankClinicalTrials(
+      [
+        {
+          id: "NCT-US",
+          type: "clinicalTrial",
+          title: "DBS in Parkinson disease",
+          summary: "Deep brain stimulation",
+          eligibility: "Adults",
+          status: "COMPLETED",
+          location: "Boston, Massachusetts, United States",
+          year: 2020,
+          credibility: 1
+        },
+        {
+          id: "NCT-NONUS",
+          type: "clinicalTrial",
+          title: "DBS in Parkinson disease",
+          summary: "Deep brain stimulation",
+          eligibility: "Adults",
+          status: "COMPLETED",
+          location: "Paris, France",
+          year: 2020,
+          credibility: 1
+        }
+      ],
+      { ...context, location: "USA" }
+    );
+
+    expect(ranked[0].id).toBe("NCT-US");
+  });
+
   it("selects a concise mixed source set", () => {
     const publications = Array.from({ length: 10 }, (_, index) => ({
       id: `P${index}`,
@@ -92,5 +124,6 @@ describe("ranking", () => {
     const selected = selectTopSources(publications, trials, 8);
     expect(selected.publications.length + selected.clinicalTrials.length).toBe(8);
     expect(selected.clinicalTrials.length).toBeGreaterThan(0);
+    expect(selected.clinicalTrials.length).toBeLessThanOrEqual(3);
   });
 });

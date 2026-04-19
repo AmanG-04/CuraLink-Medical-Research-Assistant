@@ -15,7 +15,7 @@ describe("llm answer coercion", () => {
     expect(output).toContain("Research Insights:");
     expect(output).toContain("Clinical Trials:");
     expect(output).toContain("Source Attribution:");
-    expect(output).toContain("Safety Note:");
+    expect(output).not.toContain("Safety Note:");
   });
 
   it("normalizes heading variants", () => {
@@ -23,15 +23,14 @@ describe("llm answer coercion", () => {
       "Condition: Kidney stones can be painful.",
       "Insights: Evidence is mixed.",
       "Trials: Not enough evidence.",
-      "Sources: [P1], [T1]",
-      "Safety: General information only."
+      "Sources: [P1], [T1]"
     ].join("\n"));
 
     expect(output).toContain("Condition Overview:\nKidney stones can be painful.");
     expect(output).toContain("Research Insights:\nEvidence is mixed.");
     expect(output).toContain("Clinical Trials:\nNot enough evidence.");
     expect(output).toContain("Source Attribution:\n[P1], [T1]");
-    expect(output).toContain("Safety Note:\nGeneral information only.");
+    expect(output).not.toContain("Safety Note:");
   });
 
   it("coerces plain text into required sections", () => {
@@ -41,7 +40,7 @@ describe("llm answer coercion", () => {
     expect(output).toContain("Research Insights:");
     expect(output).toContain("Clinical Trials:");
     expect(output).toContain("Source Attribution:");
-    expect(output).toContain("Safety Note:");
+    expect(output).not.toContain("Safety Note:");
   });
 
   it("falls back to a safe structured answer when model output is degenerate", async () => {
@@ -106,7 +105,48 @@ describe("llm answer coercion", () => {
 
     expect(answer).toContain("Condition Overview:");
     expect(answer).toContain("Research Insights:");
-    expect(answer).toContain("Safety Note:");
+    expect(answer).toContain("Source Attribution:");
     expect(answer).toContain("[P1]");
+  });
+
+  it("backfills source attribution when citations exist in answer body", async () => {
+    const fetcher = async () =>
+      new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: [
+                  "Condition Overview: DBS may help motor symptoms in PD [P1].",
+                  "Research Insights: Cognitive effects vary across studies [P2].",
+                  "Clinical Trials: Not enough evidence.",
+                  "Source Attribution: Not enough evidence."
+                ].join("\n")
+              }
+            }
+          ]
+        }),
+        { headers: { "Content-Type": "application/json" } }
+      );
+
+    const answer = await generateAnswer(
+      {
+        context: { condition: "Parkinson disease", question: "DBS" },
+        message: "DBS",
+        history: [],
+        sources: {
+          publications: [
+            { id: "p1", title: "DBS motor outcomes", source: "PubMed", year: 2024 },
+            { id: "p2", title: "DBS cognition review", source: "OpenAlex", year: 2022 }
+          ],
+          clinicalTrials: []
+        }
+      },
+      fetcher
+    );
+
+    expect(answer).toContain("Source Attribution:\n[P1] DBS motor outcomes");
+    expect(answer).toContain("[P2] DBS cognition review");
+    expect(answer).not.toContain("Source Attribution:\nNot enough evidence.");
   });
 });

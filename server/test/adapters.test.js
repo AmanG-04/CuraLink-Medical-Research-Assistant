@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeClinicalTrial } from "../src/services/clinicalTrials.js";
+import { fetchClinicalTrials, normalizeClinicalTrial } from "../src/services/clinicalTrials.js";
 import { fetchOpenAlexPublications, reconstructOpenAlexAbstract } from "../src/services/openalex.js";
 import { fetchPubMedPublications, normalizePubMedArticle } from "../src/services/pubmed.js";
 
@@ -117,5 +117,58 @@ describe("source adapters", () => {
     expect(record.url).toBe("https://clinicaltrials.gov/study/NCT123");
     expect(record.location).toContain("Toronto");
     expect(record.contact).toContain("study@example.org");
+  });
+
+  it("falls back to broader ClinicalTrials query when strict filters return no studies", async () => {
+    const calls = [];
+    const fetcher = async (url) => {
+      const href = String(url);
+      calls.push(href);
+
+      if (calls.length === 1) {
+        return new Response(JSON.stringify({ studies: [] }), {
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+
+      return new Response(
+        JSON.stringify({
+          studies: [
+            {
+              protocolSection: {
+                identificationModule: {
+                  nctId: "NCT00053625",
+                  briefTitle: "Deep Brain Stimulation for Parkinson's Disease Trial"
+                },
+                statusModule: {
+                  overallStatus: "COMPLETED",
+                  studyFirstPostDateStruct: { date: "2003-01-01" }
+                },
+                descriptionModule: { briefSummary: "Trial summary" },
+                eligibilityModule: { eligibilityCriteria: "Adults" },
+                contactsLocationsModule: {
+                  locations: [{ city: "Atlanta", state: "Georgia", country: "United States" }]
+                }
+              }
+            }
+          ]
+        }),
+        { headers: { "Content-Type": "application/json" } }
+      );
+    };
+
+    const records = await fetchClinicalTrials(
+      {
+        condition: "Parkinson disease",
+        intent: "DBS",
+        question: "effects",
+        location: "United States"
+      },
+      fetcher
+    );
+
+    expect(records).toHaveLength(1);
+    expect(records[0].id).toBe("NCT00053625");
+    expect(calls.length).toBeGreaterThan(1);
   });
 });

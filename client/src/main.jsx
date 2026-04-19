@@ -333,6 +333,10 @@ function App() {
                 {status === "loading" ? "Working..." : "Send"}
               </button>
             </form>
+
+            <p className="chat-disclaimer">
+              General information only and not medical advice. Consult a qualified clinician for personal care decisions.
+            </p>
           </section>
 
           <aside className="source-rail">
@@ -442,7 +446,12 @@ function parseAnswerSections(answer) {
   let current = null;
 
   for (const line of lines) {
-    const match = line.match(/^\**(Condition Overview|Research Insights|Clinical Trials|Source Attribution|Safety Note)\**:?\s*(.*)$/i);
+    if (/^\**\s*Safety(?:\s+Note)?\s*\**:?\s*/i.test(line)) {
+      current = null;
+      continue;
+    }
+
+    const match = line.match(/^\**(Condition Overview|Research Insights|Clinical Trials|Source Attribution)\**:?\s*(.*)$/i);
     if (match) {
       current = { title: match[1], body: match[2] || "" };
       sections.push(current);

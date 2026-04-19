@@ -5,8 +5,7 @@ const SECTION_ORDER = [
   "Condition Overview",
   "Research Insights",
   "Clinical Trials",
-  "Source Attribution",
-  "Safety Note"
+  "Source Attribution"
 ];
 
 const REQUIRED_HEADINGS = SECTION_ORDER.map((heading) => `${heading}:`);
@@ -61,13 +60,12 @@ Condition Overview:
 Research Insights:
 Clinical Trials:
 Source Attribution:
-Safety Note:
 
 Rules:
 - Address the user question directly in Condition Overview (first 2-4 sentences).
 - Every claim about evidence, outcomes, risks, or recommendations must cite [P#] or [T#].
 - If the sources do not answer the question, say "Not enough evidence" and explain what is missing.
-- You may include general safety cautions only if clearly labeled as general (not source-backed).`;
+- Do not add extra headings beyond the four required sections.`;
 }
 
 function extractGeneratedText(payload) {
@@ -99,15 +97,11 @@ function canonicalHeading(label = "") {
   if (normalized === "source" || normalized === "sources" || normalized === "citation" || normalized === "citations" || normalized === "references" || normalized === "source attribution") {
     return "Source Attribution";
   }
-  if (normalized === "safety" || normalized === "safety note") {
-    return "Safety Note";
-  }
   return "";
 }
 
 function defaultSectionBody(heading) {
   if (heading === "Source Attribution") return "Not enough evidence. Please verify sources in the side panel.";
-  if (heading === "Safety Note") return "General information only and not medical advice. Consult a qualified clinician for personal care decisions.";
   return "Not enough evidence.";
 }
 
@@ -121,6 +115,11 @@ export function coerceStructuredAnswer(rawAnswer = "") {
   let preamble = "";
 
   for (const line of lines) {
+    if (/^\**\s*safety(?:\s+note)?\s*\**\s*[:\-]?/i.test(line)) {
+      activeHeading = "";
+      continue;
+    }
+
     const match = line.match(/^\**\s*([A-Za-z][A-Za-z\s]{1,48}?)\s*\**(?:\s*[:\-]\s*(.*)|\s*)$/);
     const detectedHeading = canonicalHeading(match?.[1] || "");
     if (detectedHeading) {
@@ -189,6 +188,44 @@ function shortSourceList(items = [], type = "publication") {
     .join("; ");
 }
 
+function buildSourceReferenceMap(sources = {}) {
+  const map = new Map();
+  (sources.publications || []).forEach((item, index) => {
+    map.set(`P${index + 1}`, `[P${index + 1}] ${item.title} (${item.source || "source"}, ${item.year || "year unknown"})`);
+  });
+  (sources.clinicalTrials || []).forEach((item, index) => {
+    map.set(`T${index + 1}`, `[T${index + 1}] ${item.title} (${item.status || "status unknown"})`);
+  });
+  return map;
+}
+
+function citedReferenceKeys(answer = "") {
+  const matches = answer.match(/\[(P|T)\d+\]/g) || [];
+  return [...new Set(matches.map((token) => token.replace(/[\[\]]/g, "")))];
+}
+
+function shouldBackfillAttribution(answer = "") {
+  const attributionMatch = answer.match(/Source Attribution:\s*([\s\S]*?)$/i);
+  const attributionBody = (attributionMatch?.[1] || "").trim();
+  if (!attributionBody) return true;
+  return /not enough evidence/i.test(attributionBody);
+}
+
+function backfillSourceAttribution(answer = "", sources = {}) {
+  if (!shouldBackfillAttribution(answer)) return answer;
+
+  const refMap = buildSourceReferenceMap(sources);
+  const citedKeys = citedReferenceKeys(answer);
+  const lines = citedKeys.map((key) => refMap.get(key)).filter(Boolean);
+
+  if (lines.length === 0) {
+    return answer;
+  }
+
+  const replacement = `Source Attribution:\n${lines.join("; ")}`;
+  return answer.replace(/Source Attribution:\s*[\s\S]*$/i, replacement);
+}
+
 function relevantSources(items = [], context = {}, type = "publication") {
   const keywords = keywordSet(context.condition, context.intent, context.symptoms, context.question);
 
@@ -221,17 +258,35 @@ function fallbackStructuredAnswer({ context, sources }) {
 
   const conditionLabel = context.condition || "the condition";
   const focusLabel = context.intent || context.symptoms || context.question || "the question";
+  const topPublications = matchedPublications.slice(0, 3);
+  const topTrials = matchedTrials.slice(0, 3);
+
+  const publicationSummary = topPublications
+    .map((item, index) => {
+      const citation = `[P${index + 1}]`;
+      const sourceYear = [item.source, item.year].filter(Boolean).join(", ");
+      return `${citation} ${item.title}${sourceYear ? ` (${sourceYear})` : ""}`;
+    })
+    .join("; ");
+
+  const trialSummary = topTrials
+    .map((item, index) => {
+      const citation = `[T${index + 1}]`;
+      const place = item.location ? ` in ${item.location}` : "";
+      return `${citation} ${item.title} (${item.status || "status unknown"})${place}`;
+    })
+    .join("; ");
 
   const overview = hasPublications
-    ? `Based on the retrieved sources, evidence related to ${conditionLabel} and ${focusLabel} is available but should be interpreted with clinician guidance.`
+    ? `For ${conditionLabel} and ${focusLabel}, the retrieved evidence includes multiple focused studies and reviews rather than a single definitive result [P1]. The direction of benefit appears topic-relevant, but study design and population differences mean conclusions should be individualized [P1][P2].`
     : `Not enough evidence from retrieved publications to answer confidently for ${conditionLabel} and ${focusLabel}.`;
 
   const insights = hasPublications
-    ? `Relevant publication signals: ${publicationRefs}`
+    ? `Top publication signals: ${publicationSummary}. These sources should be read together because endpoints and follow-up windows differ across studies [P1][P2].`
     : "Not enough evidence.";
 
   const trials = hasTrials
-    ? `Relevant trial signals: ${trialRefs}`
+    ? `Matching trial signals: ${trialSummary}. Prioritize eligibility, location, and status when deciding what to review first [T1].`
     : "Not enough evidence.";
 
   const attribution = [publicationRefs, trialRefs].filter(Boolean).join("; ") || "Not enough evidence. Please verify sources in the side panel.";
@@ -240,8 +295,7 @@ function fallbackStructuredAnswer({ context, sources }) {
     `Condition Overview:\n${overview}`,
     `Research Insights:\n${insights}`,
     `Clinical Trials:\n${trials}`,
-    `Source Attribution:\n${attribution}`,
-    "Safety Note:\nGeneral information only and not medical advice. Consult a qualified clinician for personal care decisions."
+    `Source Attribution:\n${attribution}`
   ].join("\n\n");
 }
 
@@ -288,12 +342,12 @@ export async function generateAnswer({ context, message, history, sources }, fet
   try {
     try {
       const generated = await requestLlmAnswer(prompt, fetcher, controller.signal);
-      let answer = coerceStructuredAnswer(generated);
+      let answer = backfillSourceAttribution(coerceStructuredAnswer(generated), sources);
       if (isAnswerUsable(answer, sources)) return answer;
 
       const stricterPrompt = `${prompt}\n\nImportant formatting constraints:\n- Keep each section concise (2-5 sentences).\n- Do not output numbered citation dumps like 1,2,3,...\n- Cite evidence only as [P#] or [T#].\n- If unsure, write \"Not enough evidence.\"`;
       const retryGenerated = await requestLlmAnswer(stricterPrompt, fetcher, controller.signal);
-      answer = coerceStructuredAnswer(retryGenerated);
+      answer = backfillSourceAttribution(coerceStructuredAnswer(retryGenerated), sources);
       if (isAnswerUsable(answer, sources)) return answer;
     } catch (error) {
       const aborted = error?.name === "AbortError" || /aborted/i.test(error?.message || "");

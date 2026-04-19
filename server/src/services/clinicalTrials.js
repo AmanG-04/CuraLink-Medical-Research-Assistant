@@ -43,24 +43,23 @@ export function normalizeClinicalTrial(study) {
   };
 }
 
-export async function fetchClinicalTrials(context, fetcher = fetch) {
-  const searchQuery = context.query || context.condition;
-  if (!context.condition && !searchQuery) return [];
+function normalizeIntentTerm(intent = "") {
+  const cleaned = String(intent || "").trim();
+  if (!cleaned) return "";
 
-  const url = new URL("https://clinicaltrials.gov/api/v2/studies");
-  if (context.condition) url.searchParams.set("query.cond", context.condition);
-  // ClinicalTrials.gov is sensitive to long, keyword-stuffed `query.term` values.
-  // Keep it compact: prefer an explicit intervention/topic, else a few keywords.
-  const term =
-    context.intent ||
-    [...keywordSet(context.condition, context.question || "")].slice(0, 6).join(" ") ||
-    searchQuery ||
-    "";
-  if (term) {
-    url.searchParams.set("query.term", term);
-    if (context.intent) url.searchParams.set("query.intr", context.intent);
+  if (/^dbs$/i.test(cleaned) || /\bdbs\b/i.test(cleaned)) {
+    return "deep brain stimulation";
   }
-  if (context.location) url.searchParams.set("query.locn", context.location);
+
+  return cleaned;
+}
+
+async function fetchStudies(queryParams, fetcher = fetch) {
+  const url = new URL("https://clinicaltrials.gov/api/v2/studies");
+  Object.entries(queryParams)
+    .filter(([, value]) => Boolean(value))
+    .forEach(([key, value]) => url.searchParams.set(key, String(value)));
+
   url.searchParams.set("pageSize", String(config.clinicalTrialsPageSize));
   url.searchParams.set("format", "json");
 
@@ -68,5 +67,48 @@ export async function fetchClinicalTrials(context, fetcher = fetch) {
   if (!response.ok) throw new Error(`ClinicalTrials.gov returned ${response.status}`);
 
   const payload = await response.json();
-  return (payload.studies || []).map(normalizeClinicalTrial);
+  return payload.studies || [];
+}
+
+export async function fetchClinicalTrials(context, fetcher = fetch) {
+  const searchQuery = context.query || context.condition;
+  if (!context.condition && !searchQuery) return [];
+
+  const normalizedIntent = normalizeIntentTerm(context.intent || "");
+  // ClinicalTrials.gov is sensitive to long, keyword-stuffed `query.term` values.
+  // Keep it compact: prefer an explicit intervention/topic, else a few keywords.
+  const term =
+    normalizedIntent ||
+    [...keywordSet(context.condition, context.question || "")].slice(0, 6).join(" ") ||
+    searchQuery ||
+    "";
+
+  const attempts = [
+    {
+      "query.cond": context.condition,
+      "query.term": term,
+      "query.intr": normalizedIntent,
+      "query.locn": context.location
+    },
+    {
+      "query.cond": context.condition,
+      "query.term": term,
+      "query.intr": normalizedIntent
+    },
+    {
+      "query.cond": context.condition,
+      "query.term": term
+    },
+    {
+      "query.cond": context.condition
+    }
+  ];
+
+  let studies = [];
+  for (const params of attempts) {
+    studies = await fetchStudies(params, fetcher);
+    if (studies.length > 0) break;
+  }
+
+  return studies.map(normalizeClinicalTrial);
 }
