@@ -155,6 +155,12 @@ export function buildResearchContext(input, previous = {}) {
   const preserveFollowUpIntent = isQuestionFollowUp && isInterventionFollowUpQuestion(message);
   const extractedIntent = (isQuestionFollowUp && !preserveFollowUpIntent) ? "" : extractIntent(message, condition);
   const structuredIntent = cleanText(input.additionalQuery || "");
+  const specialtyRole = cleanText(input.specialtyRole || "") || previous.specialtyRole || "";
+  const patientAge = cleanText(input.patientAge || "") || previous.patientAge || "";
+  const patientComorbidities = cleanText(input.patientComorbidities || "") || previous.patientComorbidities || "";
+  const patientMedications = cleanText(input.patientMedications || "") || previous.patientMedications || "";
+  const clinicalQuestionType = cleanText(input.clinicalQuestionType || "") || previous.clinicalQuestionType || "";
+  const referralMode = input.referralMode ?? previous.referralMode ?? input.userType === "clinician";
   // If the user asks a direct question (especially on the first turn) without a research focus,
   // don't treat the full question text as the "intent/intervention".
   const intent = structuredIntent || (messageIsQuestion && !isInterventionFollowUpQuestion(message)
@@ -164,17 +170,31 @@ export function buildResearchContext(input, previous = {}) {
   const patientName = cleanText(input.patientName || "") || previous.patientName || "";
   const symptoms = cleanText(input.symptoms || "") || previous.symptoms || "";
   const userType = input.userType || previous.userType || "patient";
-  const keywords = [...keywordSet(condition, intent, symptoms, message)];
-  const query = [condition, intent].filter(Boolean).join(" ");
-  const retrievalQuery = buildRetrievalQuery({ condition, intent, symptoms, message });
+  const profileSummary = [specialtyRole, patientAge, patientComorbidities, patientMedications, clinicalQuestionType]
+    .filter(Boolean)
+    .join(" ");
+  const keywords = [...keywordSet(condition, intent, symptoms, message, specialtyRole, patientAge, patientComorbidities, patientMedications, clinicalQuestionType)];
+  const query = [condition, intent, clinicalQuestionType, patientAge, patientComorbidities, patientMedications].filter(Boolean).join(" ");
+  const retrievalQuery = buildRetrievalQuery({ condition, intent, symptoms, message: [message, profileSummary].filter(Boolean).join(" ") });
 
   return {
     userType,
     patientName,
+    specialtyRole,
     condition,
+    patientAge,
+    patientComorbidities,
+    patientMedications,
+    clinicalQuestionType,
     symptoms,
     intent,
     location,
+    referralMode,
+    patientProfile: {
+      age: patientAge,
+      comorbidities: patientComorbidities,
+      medications: patientMedications
+    },
     query: query || message,
     retrievalQuery: retrievalQuery || query || message,
     question: message,

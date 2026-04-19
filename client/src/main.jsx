@@ -4,6 +4,7 @@ import "./styles.css";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
 const SESSION_KEY = "curalink-session-id";
+const WARMUP_TIMEOUT_MS = 65000;
 
 const personas = {
   patient: {
@@ -24,7 +25,7 @@ const personas = {
   }
 };
 
-const intakeSteps = [
+const patientIntakeSteps = [
   {
     key: "patientName",
     prompt: "Hi, I am CuraLink. What name or label should I use for this research conversation?",
@@ -66,6 +67,94 @@ const intakeSteps = [
   }
 ];
 
+const clinicianIntakeSteps = [
+  {
+    key: "specialtyRole",
+    prompt: "What is your specialty or role in this referral?",
+    placeholder: "Example: neurologist, movement disorders fellow, primary care clinician, or skip",
+    optional: true,
+    normalize(value) {
+      return isSkip(value) ? "" : value;
+    }
+  },
+  {
+    key: "disease",
+    prompt: "What condition or diagnosis should I use for the patient referral?",
+    placeholder: "Example: Parkinson disease, ALS, multiple sclerosis",
+    requiredMessage: "Please share the patient condition so I can filter trials."
+  },
+  {
+    key: "patientAge",
+    prompt: "What is the patient age or age range?",
+    placeholder: "Example: 67, 18-35, or skip",
+    optional: true,
+    normalize(value) {
+      return isSkip(value) ? "" : value;
+    }
+  },
+  {
+    key: "patientComorbidities",
+    prompt: "Any important comorbidities or exclusion concerns?",
+    placeholder: "Example: diabetes, CKD, prior stroke, or skip",
+    optional: true,
+    normalize(value) {
+      return isSkip(value) ? "" : value;
+    }
+  },
+  {
+    key: "patientMedications",
+    prompt: "What current medications should I screen against trial criteria?",
+    placeholder: "Example: levodopa, warfarin, steroids, or skip",
+    optional: true,
+    normalize(value) {
+      return isSkip(value) ? "" : value;
+    }
+  },
+  {
+    key: "clinicalQuestionType",
+    prompt: "What type of clinical question do you want answered?",
+    placeholder: "Example: eligibility screening, efficacy, safety, or trial comparison",
+    optional: true,
+    normalize(value) {
+      return isSkip(value) ? "" : value;
+    }
+  },
+  {
+    key: "location",
+    prompt: "Where should I look for trial options? You can give a city/country or say skip.",
+    placeholder: "Example: Canada, Toronto, or skip",
+    optional: true,
+    normalize(value) {
+      return isSkip(value) ? "" : value;
+    }
+  },
+  {
+    key: "question",
+    prompt: "What should I answer first for this patient referral?",
+    placeholder: "Example: Which trials fit this profile?",
+    requiredMessage: "Please ask a referral question so I can start."
+  }
+];
+
+function buildIntakeSteps(persona) {
+  return persona === "clinician" ? clinicianIntakeSteps : patientIntakeSteps;
+}
+
+function emptyDraft() {
+  return {
+    patientName: "",
+    specialtyRole: "",
+    disease: "",
+    patientAge: "",
+    patientComorbidities: "",
+    patientMedications: "",
+    clinicalQuestionType: "",
+    symptoms: "",
+    location: "",
+    question: ""
+  };
+}
+
 function getSessionId() {
   const existing = localStorage.getItem(SESSION_KEY);
   if (existing) return existing;
@@ -98,16 +187,28 @@ async function apiRequest(path, options = {}) {
   return response.json();
 }
 
+async function wakeBackend() {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), WARMUP_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/health`, {
+      method: "GET",
+      signal: controller.signal
+    });
+    if (!response.ok) {
+      throw new Error(`Health check failed with ${response.status}`);
+    }
+    return true;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 function App() {
   const [sessionId, setSessionId] = useState(() => getSessionId());
   const [persona, setPersona] = useState("");
-  const [draft, setDraft] = useState({
-    patientName: "",
-    disease: "",
-    symptoms: "",
-    location: "",
-    question: ""
-  });
+  const [draft, setDraft] = useState(() => emptyDraft());
   const [stepIndex, setStepIndex] = useState(0);
   const [input, setInput] = useState("");
   const [localTurns, setLocalTurns] = useState([]);
@@ -116,9 +217,11 @@ function App() {
   const [latestSources, setLatestSources] = useState({ publications: [], clinicalTrials: [] });
   const [status, setStatus] = useState("idle");
   const [error, setError] = useState("");
+  const [warmupStatus, setWarmupStatus] = useState("waking");
   const messagesRef = useRef(null);
 
   const selectedPersona = personas[persona];
+  const intakeSteps = useMemo(() => buildIntakeSteps(persona), [persona]);
   const currentStep = intakeSteps[stepIndex];
   const isResearchReady = stepIndex >= intakeSteps.length;
   const displayTurns = [...localTurns, ...serverTurns];
@@ -129,16 +232,34 @@ function App() {
     node.scrollTop = node.scrollHeight;
   }, [displayTurns.length, status]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        await wakeBackend();
+        if (!cancelled) setWarmupStatus("ready");
+      } catch {
+        if (!cancelled) setWarmupStatus("error");
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   function choosePersona(nextPersona) {
     localStorage.setItem(`${SESSION_KEY}-persona`, nextPersona);
+    const nextSteps = buildIntakeSteps(nextPersona);
     setPersona(nextPersona);
-    setDraft({ patientName: "", disease: "", symptoms: "", location: "", question: "" });
+    setDraft(emptyDraft());
     setStepIndex(0);
     setInput("");
     setLocalTurns([
       {
         role: "assistant",
-        message: intakeSteps[0].prompt,
+        message: nextSteps[0].prompt,
         createdAt: new Date().toISOString()
       }
     ]);
@@ -161,7 +282,7 @@ function App() {
     const nextSessionId = createSessionId();
     setSessionId(nextSessionId);
     setPersona("");
-    setDraft({ patientName: "", disease: "", symptoms: "", location: "", question: "" });
+    setDraft(emptyDraft());
     setStepIndex(0);
     setInput("");
     setLocalTurns([]);
@@ -236,10 +357,16 @@ function App() {
           sessionId,
           userType: persona,
           patientName: contextDraft.patientName,
+          specialtyRole: contextDraft.specialtyRole,
           disease: contextDraft.disease,
+          patientAge: contextDraft.patientAge,
+          patientComorbidities: contextDraft.patientComorbidities,
+          patientMedications: contextDraft.patientMedications,
+          clinicalQuestionType: contextDraft.clinicalQuestionType,
           symptoms: contextDraft.symptoms,
           location: contextDraft.location,
-          message: question
+          message: question,
+          referralMode: persona === "clinician"
         })
       });
 
@@ -249,9 +376,12 @@ function App() {
       setLocalTurns(preservedLocalTurns);
     } catch (err) {
       setError(err.message);
+      const friendlyMessage = /failed to fetch/i.test(err?.message || "")
+        ? "The backend may still be turning on. Please wait about 30 seconds and try again."
+        : `I could not generate the answer yet: ${err.message}`;
       setLocalTurns((turns) => [
         ...turns,
-        assistantTurn(`I could not generate the answer yet: ${err.message}`)
+        assistantTurn(friendlyMessage)
       ]);
       if (isResearchReady) {
         setServerTurns((turns) => turns.filter((turn) => turn !== optimisticTurn));
@@ -262,11 +392,17 @@ function App() {
   }
 
   if (!persona) {
-    return <LandingPage onChoose={choosePersona} />;
+    return (
+      <>
+        <WarmupNotice status={warmupStatus} />
+        <LandingPage onChoose={choosePersona} />
+      </>
+    );
   }
 
   return (
     <main className="app-shell">
+      <WarmupNotice status={warmupStatus} />
       <section className="chat-page" aria-label="CuraLink medical research assistant">
         <header className="app-header">
           <div>
@@ -350,6 +486,18 @@ function App() {
   );
 }
 
+function WarmupNotice({ status }) {
+  if (status === "ready") {
+    return <div className="warmup-notice warmup-ready">Backend ready.</div>;
+  }
+
+  if (status === "error") {
+    return <div className="warmup-notice warmup-error">Could not wake backend yet. First response may be delayed on free tier.</div>;
+  }
+
+  return <div className="warmup-notice">Waking backend. On free tier, first request can take up to a minute.</div>;
+}
+
 function LandingPage({ onChoose }) {
   return (
     <main className="landing-shell">
@@ -393,13 +541,25 @@ function assistantTurn(message) {
 }
 
 function ContextSnapshot({ context, persona }) {
-  const rows = [
-    ["Mode", persona],
-    ["Name", context.patientName],
-    ["Condition", context.condition],
-    ["Symptoms", context.symptoms],
-    ["Location", context.location]
-  ].filter(([, value]) => value);
+  const rows =
+    persona === "Clinician"
+      ? [
+          ["Mode", "Patient referral"],
+          ["Specialty / role", context.specialtyRole],
+          ["Patient condition", context.condition],
+          ["Patient age", context.patientAge],
+          ["Comorbidities", context.patientComorbidities],
+          ["Current meds", context.patientMedications],
+          ["Question type", context.clinicalQuestionType],
+          ["Trial location", context.location]
+        ].filter(([, value]) => value)
+      : [
+          ["Mode", persona],
+          ["Name", context.patientName],
+          ["Condition", context.condition],
+          ["Symptoms", context.symptoms],
+          ["Location", context.location]
+        ].filter(([, value]) => value);
 
   return (
     <section className="context-card">
@@ -485,6 +645,11 @@ function SourceList({ title, items, type }) {
             ) : (
               <>
                 <p>{item.eligibility || "Eligibility details were not provided."}</p>
+                {item.eligibilityConflict && (
+                  <p className="trial-flag">
+                    Possible eligibility conflict: {item.eligibilityConflictReasons?.join(" ") || "Review profile against criteria."}
+                  </p>
+                )}
                 <small>{[item.location, item.contact].filter(Boolean).join(" / ") || "Contact not listed"}</small>
               </>
             )}

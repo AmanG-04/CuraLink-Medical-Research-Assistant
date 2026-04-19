@@ -109,6 +109,58 @@ describe("ranking", () => {
     expect(ranked[0].id).toBe("NCT-US");
   });
 
+  it("flags age conflicts in clinician referral mode", () => {
+    const ranked = rankClinicalTrials(
+      [
+        {
+          id: "NCT-AGE",
+          type: "clinicalTrial",
+          title: "DBS study",
+          summary: "Deep brain stimulation",
+          eligibility: "Adults ages 18 to 65",
+          status: "RECRUITING",
+          location: "Toronto, Canada",
+          year: 2025,
+          credibility: 1
+        }
+      ],
+      {
+        ...context,
+        patientAge: "72",
+        referralMode: true
+      }
+    );
+
+    expect(ranked[0].eligibilityConflict).toBe(true);
+    expect(ranked[0].eligibilityConflictReasons[0]).toContain("72");
+  });
+
+  it("flags medication conflicts from eligibility text", () => {
+    const ranked = rankClinicalTrials(
+      [
+        {
+          id: "NCT-MED",
+          type: "clinicalTrial",
+          title: "DBS study",
+          summary: "Deep brain stimulation",
+          eligibility: "Exclusion: current use of warfarin or other anticoagulants.",
+          status: "RECRUITING",
+          location: "Toronto, Canada",
+          year: 2025,
+          credibility: 1
+        }
+      ],
+      {
+        ...context,
+        patientMedications: "levodopa, warfarin",
+        referralMode: true
+      }
+    );
+
+    expect(ranked[0].eligibilityConflict).toBe(true);
+    expect(ranked[0].eligibilityConflictReasons.join(" ")).toContain("warfarin");
+  });
+
   it("selects a concise mixed source set", () => {
     const publications = Array.from({ length: 10 }, (_, index) => ({
       id: `P${index}`,

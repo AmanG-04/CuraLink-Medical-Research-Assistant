@@ -15,7 +15,10 @@ function sourceLine(source, index) {
     return `[P${index + 1}] ${source.title} (${source.source}, ${source.year || "year unknown"}). ${truncate(source.summary, 420)} URL: ${source.url}`;
   }
 
-  return `[T${index + 1}] ${source.title} (${source.status}). Location: ${source.location || "not listed"}. Eligibility: ${truncate(source.eligibility, 360)} URL: ${source.url}`;
+  const conflictNote = source.eligibilityConflict
+    ? ` Eligibility flag: ${truncate((source.eligibilityConflictReasons || []).join(" "), 220)}`
+    : "";
+  return `[T${index + 1}] ${source.title} (${source.status}). Location: ${source.location || "not listed"}. Eligibility: ${truncate(source.eligibility, 360)}.${conflictNote} URL: ${source.url}`;
 }
 
 export function buildLlmPrompt({ context, message, history, sources }) {
@@ -27,10 +30,26 @@ export function buildLlmPrompt({ context, message, history, sources }) {
     .join("\n");
 
   const question = message || context.question || context.query;
+  const isClinician = context.userType === "clinician";
   const audienceInstruction =
-    context.userType === "clinician"
-      ? "Audience: clinician/researcher. Prioritize evidence scan, ranking rationale, study/trial details, source quality, limitations, and structured citations. Use concise technical language."
-      : "Audience: patient/caregiver. Use plain language, explain terms, personalize gently using provided context, and keep clinical advice cautious.";
+    isClinician
+      ? "Audience: clinician/researcher. Prioritize evidence scan, ranking rationale, study/trial details, source quality, limitations, and structured citations. Keep a professional but conversational tone."
+      : "Audience: patient/caregiver. Use plain language, explain terms, personalize gently using provided context, and keep clinical advice cautious. Sound like a helpful chat assistant, not a report generator.";
+  const styleInstruction = isClinician
+    ? [
+        "Clinician style requirements:",
+        "- Include methodology- or endpoint-oriented language when source detail allows (for example, long-term outcomes, adverse effects, comparator differences).",
+        "- In Research Insights, include one concise limitations sentence.",
+        "- In Clinical Trials, separate near-term enrollment relevance from evidence relevance when possible.",
+        "- Avoid lay simplifications unless explicitly requested."
+      ].join("\n")
+    : [
+        "Patient/caregiver style requirements:",
+        "- Use plain words first, then short medical terms in context.",
+        "- Keep the emotional tone supportive and practical.",
+        "- In Research Insights, translate what the evidence means in everyday language.",
+        "- In Clinical Trials, tell the user what to check first before considering enrollment."
+      ].join("\n");
 
   return `You are CuraLink, a medical research assistant. Use only the provided sources. Do not diagnose, prescribe, or claim certainty beyond the evidence. If evidence is missing, say "Not enough evidence".
 ${audienceInstruction}
@@ -39,6 +58,12 @@ Patient/research context:
 - User type: ${context.userType || "patient"}
 - Patient name: ${context.patientName || "not provided"}
 - Condition: ${context.condition || "not provided"}
+- Specialty / role: ${context.specialtyRole || "not provided"}
+- Patient age: ${context.patientAge || "not provided"}
+- Patient comorbidities: ${context.patientComorbidities || "not provided"}
+- Current medications: ${context.patientMedications || "not provided"}
+- Clinical question type: ${context.clinicalQuestionType || "not provided"}
+- Referral mode: ${context.referralMode ? "yes" : "no"}
 - Symptoms/context: ${context.symptoms || "not provided"}
 - Research focus (topic/intervention): ${context.intent || "not provided"}
 - Location: ${context.location || "not provided"}
@@ -62,10 +87,13 @@ Clinical Trials:
 Source Attribution:
 
 Rules:
-- Address the user question directly in Condition Overview (first 2-4 sentences).
+- Address the user question directly in Condition Overview (first 2-4 sentences), and start with one natural-language sentence that acknowledges what the user asked.
 - Every claim about evidence, outcomes, risks, or recommendations must cite [P#] or [T#].
 - If the sources do not answer the question, say "Not enough evidence" and explain what is missing.
-- Do not add extra headings beyond the four required sections.`;
+- Write in complete natural prose. Avoid robotic labels like "signals" or "candidate pool".
+- Do not add extra headings beyond the four required sections.
+
+${styleInstruction}`;
 }
 
 function extractGeneratedText(payload) {
@@ -255,6 +283,7 @@ function fallbackStructuredAnswer({ context, sources }) {
   const trialRefs = shortSourceList(matchedTrials, "clinicalTrial");
   const hasPublications = Boolean(matchedPublications.length);
   const hasTrials = Boolean(matchedTrials.length);
+  const isClinician = context.userType === "clinician";
 
   const conditionLabel = context.condition || "the condition";
   const focusLabel = context.intent || context.symptoms || context.question || "the question";
@@ -278,15 +307,21 @@ function fallbackStructuredAnswer({ context, sources }) {
     .join("; ");
 
   const overview = hasPublications
-    ? `For ${conditionLabel} and ${focusLabel}, the retrieved evidence includes multiple focused studies and reviews rather than a single definitive result [P1]. The direction of benefit appears topic-relevant, but study design and population differences mean conclusions should be individualized [P1][P2].`
+    ? isClinician
+      ? `You asked about ${focusLabel} in ${conditionLabel}. The retrieved literature supports a signal of benefit, but interpretability is constrained by heterogeneous populations, intervention protocols, and follow-up windows across studies [P1][P2].`
+      : `You asked about ${focusLabel} for ${conditionLabel}. The studies we found suggest there is useful evidence to guide next steps, but there is not one single perfect answer because study groups and methods differ [P1][P2].`
     : `Not enough evidence from retrieved publications to answer confidently for ${conditionLabel} and ${focusLabel}.`;
 
   const insights = hasPublications
-    ? `Top publication signals: ${publicationSummary}. These sources should be read together because endpoints and follow-up windows differ across studies [P1][P2].`
+    ? isClinician
+      ? `Start with these sources for an evidence scan: ${publicationSummary}. Cross-reading is important because endpoint definitions and longitudinal follow-up differ, which likely explains variation in reported effect magnitude [P1][P2]. Limitation: the retrieved set is informative but not a full systematic review [P1].`
+      : `A practical way to review this is to start with: ${publicationSummary}. These papers look at somewhat different outcomes and timelines, so they point in a similar direction but with different confidence levels [P1][P2].`
     : "Not enough evidence.";
 
   const trials = hasTrials
-    ? `Matching trial signals: ${trialSummary}. Prioritize eligibility, location, and status when deciding what to review first [T1].`
+    ? isClinician
+      ? `Most relevant trial matches: ${trialSummary}. For operational referral, prioritize currently recruiting or active cohorts with local access; for evidence synthesis, prioritize completed trials with result availability and protocol clarity [T1].`
+      : `These trial options are the closest matches right now: ${trialSummary}. If you want to join a study, first check recruiting status and eligibility; if you want to understand results, focus on completed studies [T1].`
     : "Not enough evidence.";
 
   const attribution = [publicationRefs, trialRefs].filter(Boolean).join("; ") || "Not enough evidence. Please verify sources in the side panel.";

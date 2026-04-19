@@ -11,10 +11,16 @@ const chatSchema = z.object({
   userType: z.enum(["patient", "clinician"]).optional().default("patient"),
   message: z.string().optional().default(""),
   patientName: z.string().optional().default(""),
+  specialtyRole: z.string().optional().default(""),
   disease: z.string().optional().default(""),
+  patientAge: z.string().optional().default(""),
+  patientComorbidities: z.string().optional().default(""),
+  patientMedications: z.string().optional().default(""),
+  clinicalQuestionType: z.string().optional().default(""),
   symptoms: z.string().optional().default(""),
   additionalQuery: z.string().optional().default(""),
-  location: z.string().optional().default("")
+  location: z.string().optional().default(""),
+  referralMode: z.boolean().optional().default(false)
 });
 
 export const chatRouter = Router();

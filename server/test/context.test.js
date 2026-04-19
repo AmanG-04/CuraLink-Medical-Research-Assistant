@@ -78,6 +78,33 @@ describe("research context", () => {
     expect(context.isFollowUp).toBe(true);
   });
 
+  it("carries clinician referral profile fields into context", () => {
+    const context = buildResearchContext(
+      {
+        userType: "clinician",
+        disease: "Parkinson disease",
+        specialtyRole: "movement disorders neurologist",
+        patientAge: "67",
+        patientComorbidities: "diabetes, CKD",
+        patientMedications: "levodopa, warfarin",
+        clinicalQuestionType: "eligibility screening",
+        referralMode: true,
+        location: "Canada",
+        message: "Which DBS trials fit this patient?"
+      },
+      {}
+    );
+
+    expect(context.userType).toBe("clinician");
+    expect(context.referralMode).toBe(true);
+    expect(context.specialtyRole).toBe("movement disorders neurologist");
+    expect(context.patientAge).toBe("67");
+    expect(context.patientComorbidities).toContain("diabetes");
+    expect(context.patientMedications).toContain("warfarin");
+    expect(context.clinicalQuestionType).toBe("eligibility screening");
+    expect(context.patientProfile.age).toBe("67");
+  });
+
   it("treats how-to-fix kidney stone questions as treatment intent", () => {
     const context = buildResearchContext(
       { disease: "kidney stones", message: "how to fix", symptoms: "pain" },
