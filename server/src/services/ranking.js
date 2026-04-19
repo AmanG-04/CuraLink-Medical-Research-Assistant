@@ -101,6 +101,11 @@ function parsePatientAge(context = {}) {
 
 function extractAgeBounds(eligibilityText = "") {
   const text = eligibilityText.toLowerCase();
+  const hasAgeCue = /\b(age|aged|ages|years? old|yrs? old|older than|younger than|at least|between|adult(?:s)?\s+ages?)\b/i.test(text);
+  if (!hasAgeCue) {
+    return {};
+  }
+
   const between = text.match(/\b(?:age\s*)?(?:between\s*)?(\d{1,3})\s*(?:and|-|to)\s*(\d{1,3})\b/);
   if (between) {
     return { min: Number.parseInt(between[1], 10), max: Number.parseInt(between[2], 10) };

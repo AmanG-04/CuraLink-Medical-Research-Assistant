@@ -161,6 +161,32 @@ describe("ranking", () => {
     expect(ranked[0].eligibilityConflictReasons.join(" ")).toContain("warfarin");
   });
 
+  it("does not treat treatment cycle ranges as age limits", () => {
+    const ranked = rankClinicalTrials(
+      [
+        {
+          id: "NCT-CYCLES",
+          type: "clinicalTrial",
+          title: "Lung cancer trial",
+          summary: "Chemo-immunotherapy",
+          eligibility: "Patients receiving 4-6 cycles of therapy before imaging assessment.",
+          status: "RECRUITING",
+          location: "Canada",
+          year: 2025,
+          credibility: 1
+        }
+      ],
+      {
+        ...context,
+        patientAge: "50",
+        referralMode: true
+      }
+    );
+
+    expect(ranked[0].eligibilityConflict).toBe(false);
+    expect(ranked[0].eligibilityConflictReasons).toHaveLength(0);
+  });
+
   it("selects a concise mixed source set", () => {
     const publications = Array.from({ length: 10 }, (_, index) => ({
       id: `P${index}`,

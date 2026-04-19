@@ -189,4 +189,45 @@ describe("llm answer coercion", () => {
     expect(answer).toContain("I couldn’t find an exact trial match");
     expect(answer).toContain("[T1] Related DBS trial");
   });
+
+  it("summarizes the newest publications in the overview for latest-treatment queries", async () => {
+    const fetcher = async () =>
+      new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: [
+                  "Condition Overview: Not enough evidence.",
+                  "Research Insights: Not enough evidence.",
+                  "Clinical Trials: Not enough evidence.",
+                  "Source Attribution: Not enough evidence."
+                ].join("\n")
+              }
+            }
+          ]
+        }),
+        { headers: { "Content-Type": "application/json" } }
+      );
+
+    const answer = await generateAnswer(
+      {
+        context: { condition: "lung cancer", question: "latest treatments", userType: "patient" },
+        message: "latest treatments",
+        history: [],
+        sources: {
+          publications: [
+            { id: "P1", title: "Newest lung cancer therapy", source: "OpenAlex", year: 2026 },
+            { id: "P2", title: "Earlier lung cancer review", source: "PubMed", year: 2024 }
+          ],
+          clinicalTrials: []
+        }
+      },
+      fetcher
+    );
+
+    expect(answer).toContain("newest retrieved publications");
+    expect(answer).toContain("Latest publication summary");
+    expect(answer).toContain("Newest lung cancer therapy");
+  });
 });

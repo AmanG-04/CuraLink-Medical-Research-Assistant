@@ -201,10 +201,7 @@ function isAnswerUsable(answer, sources) {
   if (hasDegenerateNumberList(answer)) return false;
 
   const sourceCount = (sources?.publications || []).length + (sources?.clinicalTrials || []).length;
-  if (sourceCount > 0 && !hasSourceCitation(answer)) {
-    if (appearsAllDefaultSections(answer) && (sources?.clinicalTrials || []).length === 0) return true;
-    return false;
-  }
+  if (sourceCount > 0 && !hasSourceCitation(answer)) return false;
   return true;
 }
 
@@ -280,10 +277,44 @@ function relevantSources(items = [], context = {}, type = "publication") {
   });
 }
 
+function isLatestTreatmentQuery(context = {}) {
+  const text = [context.question, context.intent, context.clinicalQuestionType]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  return /\b(latest|recent|new|newest|treatment|treatments|therapy|therapies|therapy options|current)\b/.test(text);
+}
+
+function summarizePublications(items = []) {
+  return items
+    .slice(0, 3)
+    .map((item, index) => {
+      const citation = `[P${index + 1}]`;
+      const yearPart = item.year ? `${item.year}` : "year unknown";
+      const sourcePart = item.source || "source";
+      return `${citation} ${item.title} (${sourcePart}, ${yearPart})`;
+    })
+    .join("; ");
+}
+
+function summarizeTrials(items = []) {
+  return items
+    .slice(0, 3)
+    .map((item, index) => {
+      const citation = `[T${index + 1}]`;
+      const place = item.location ? ` in ${item.location}` : "";
+      const conflict = item.eligibilityConflict
+        ? `, eligibility flag: ${(item.eligibilityConflictReasons || []).slice(0, 2).join(" ")}`
+        : "";
+      return `${citation} ${item.title} (${item.status || "status unknown"})${place}${conflict}`;
+    })
+    .join("; ");
+}
+
 function fallbackStructuredAnswer({ context, sources }) {
   const matchedPublications = relevantSources(sources?.publications || [], context, "publication");
   const matchedTrials = relevantSources(sources?.clinicalTrials || [], context, "clinicalTrial");
-  const relatedTrials = (sources?.clinicalTrials || []).slice(0, 3);
+  const shortlistedTrials = (sources?.clinicalTrials || []).slice(0, 3);
   const publicationRefs = shortSourceList(matchedPublications, "publication");
   const trialRefs = shortSourceList(matchedTrials, "clinicalTrial");
   const hasPublications = Boolean(matchedPublications.length);
@@ -293,6 +324,7 @@ function fallbackStructuredAnswer({ context, sources }) {
   const wantsMatching = /\b(fit|match|eligible|eligibility|screen|screening)\b/i.test(
     [context.question, context.intent, context.clinicalQuestionType].filter(Boolean).join(" ")
   );
+  const latestTreatmentQuery = isLatestTreatmentQuery(context);
 
   const conditionLabel = context.condition || "the condition";
   const focusLabel = context.intent || context.symptoms || context.question || "the question";
@@ -316,27 +348,25 @@ function fallbackStructuredAnswer({ context, sources }) {
     .join("; ");
 
   const overview = hasPublications
-    ? isClinician
+    ? latestTreatmentQuery
+      ? `You asked about ${focusLabel} for ${conditionLabel}. The newest retrieved publications suggest the most current treatment directions and should be read as a practical summary of what has changed most recently [P1][P2].`
+      : isClinician
       ? `You asked about ${focusLabel} in ${conditionLabel}. The retrieved literature supports a signal of benefit, but interpretability is constrained by heterogeneous populations, intervention protocols, and follow-up windows across studies [P1][P2].`
       : `You asked about ${focusLabel} for ${conditionLabel}. The studies we found suggest there is useful evidence to guide next steps, but there is not one single perfect answer because study groups and methods differ [P1][P2].`
     : `Not enough evidence from retrieved publications to answer confidently for ${conditionLabel} and ${focusLabel}.`;
 
   const insights = hasPublications
-    ? isClinician
+    ? latestTreatmentQuery
+      ? `Latest publication summary: ${summarizePublications(matchedPublications)}. These are the newest papers in the shortlist and they show the current treatment picture more clearly than older background sources [P1][P2][P3].`
+      : isClinician
       ? `Start with these sources for an evidence scan: ${publicationSummary}. Cross-reading is important because endpoint definitions and longitudinal follow-up differ, which likely explains variation in reported effect magnitude [P1][P2]. Limitation: the retrieved set is informative but not a full systematic review [P1].`
       : `A practical way to review this is to start with: ${publicationSummary}. These papers look at somewhat different outcomes and timelines, so they point in a similar direction but with different confidence levels [P1][P2].`
     : "Not enough evidence.";
 
   const trials = hasTrials
-    ? `${wantsMatching ? "I couldn’t find an exact trial match, but here are the closest trial matches:" : isClinician ? "Most relevant trial matches:" : "These trial options are the closest matches right now:"} ${trialSummary}. ${isClinician ? "For operational referral, prioritize currently recruiting or active cohorts with local access; for evidence synthesis, prioritize completed trials with result availability and protocol clarity [T1]." : "If you want to join a study, first check recruiting status and eligibility; if you want to understand results, focus on completed studies [T1]."}`
+    ? `${wantsMatching ? "I couldn’t find an exact trial match, but here are the closest trial matches from the shortlist:" : isClinician ? "Most relevant trial matches:" : "These trial options are the closest matches right now:"} ${summarizeTrials(matchedTrials.length ? matchedTrials : shortlistedTrials)}. ${isClinician ? "For operational referral, prioritize currently recruiting or active cohorts with local access; for evidence synthesis, prioritize completed trials with result availability and protocol clarity [T1]." : "If you want to join a study, first check recruiting status and eligibility; if you want to understand results, focus on completed studies [T1]."}`
     : hasAnyTrials
-      ? `${isClinician ? "I couldn’t find an exact trial match for this referral, but these related trials are the closest available options:" : "I couldn’t find an exact trial match, but these related studies are the closest options I found:"} ${relatedTrials
-          .map((item, index) => {
-            const citation = `[T${index + 1}]`;
-            const place = item.location ? ` in ${item.location}` : "";
-            return `${citation} ${item.title} (${item.status || "status unknown"})${place}`;
-          })
-          .join("; ")}.`
+      ? `${isClinician ? "I couldn’t find an exact trial match for this referral, but these related trials are the closest available options from the shortlist:" : "I couldn’t find an exact trial match, but these related studies are the closest options I found:"} ${summarizeTrials(shortlistedTrials)}.`
       : "Not enough evidence.";
 
   const attribution = [publicationRefs, trialRefs].filter(Boolean).join("; ") || "Not enough evidence. Please verify sources in the side panel.";
