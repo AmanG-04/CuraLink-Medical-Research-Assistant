@@ -463,6 +463,10 @@ function LandingPage({ onChoose }) {
             Start with the kind of evidence support you need. CuraLink will ask for the right context in chat,
             then retrieve publications and clinical trials with citations.
           </p>
+          <div className="startup-note" role="note" aria-label="Backend startup notice">
+            The backend is hosted on Render and may take up to 60 seconds to wake up after inactivity.
+            CuraLink starts pinging the health endpoint as soon as this page opens.
+          </div>
         </div>
         <img
           src="https://images.unsplash.com/photo-1576671081837-49000212a370?auto=format&fit=crop&w=1200&q=80"

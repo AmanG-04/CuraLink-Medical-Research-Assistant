@@ -116,6 +116,19 @@ a {
   max-width: 660px;
 }
 
+.startup-note {
+  backdrop-filter: blur(8px);
+  background: rgba(240, 248, 244, 0.14);
+  border: 1px solid rgba(219, 239, 232, 0.34);
+  border-radius: 8px;
+  color: #f6fbf8;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  margin-top: 1rem;
+  max-width: 620px;
+  padding: 0.85rem 1rem;
+}
+
 .persona-options {
   display: grid;
   gap: 1rem;
