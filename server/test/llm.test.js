@@ -76,7 +76,7 @@ describe("llm answer coercion", () => {
       fetcher
     );
 
-    expect(callCount).toBe(4);
+    expect(callCount).toBe(6);
     expect(answer).toContain("Condition Overview:");
     expect(answer).toContain("Research Insights:");
     expect(answer).toContain("Source Attribution:");
@@ -126,7 +126,54 @@ describe("llm answer coercion", () => {
       fetcher
     );
 
-    expect(models).toEqual([config.hfModel, config.hfFallbackModel]);
+    expect(models).toEqual([config.hfModel, config.hfFallbackModels[0]]);
+    expect(answer).toContain("Condition Overview:");
+    expect(answer).toContain("[P1]");
+  });
+
+  it("moves past a 400 response to the next qwen fallback model", async () => {
+    const models = [];
+    const fetcher = async (_url, options) => {
+      const body = JSON.parse(options.body);
+      models.push(body.model);
+
+      if (models.length === 1) {
+        return new Response("bad request", { status: 400 });
+      }
+
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: [
+                  "Condition Overview: The condition is being reviewed with available evidence.",
+                  "Research Insights: Evidence remains limited.",
+                  "Clinical Trials: Not enough evidence.",
+                  "Source Attribution: [P1]"
+                ].join("\n")
+              }
+            }
+          ]
+        }),
+        { headers: { "Content-Type": "application/json" } }
+      );
+    };
+
+    const answer = await generateAnswer(
+      {
+        context: { condition: "kidney stones", question: "how to fix" },
+        message: "how to fix",
+        history: [],
+        sources: {
+          publications: [{ id: "p1", title: "Hydration and stone prevention", source: "PubMed", year: 2024 }],
+          clinicalTrials: []
+        }
+      },
+      fetcher
+    );
+
+    expect(models).toEqual([config.hfModel, config.hfFallbackModels[0]]);
     expect(answer).toContain("Condition Overview:");
     expect(answer).toContain("[P1]");
   });

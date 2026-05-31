@@ -401,7 +401,7 @@ function fallbackStructuredAnswer({ context, sources }) {
 }
 
 function isUnavailableError(error) {
-  return error?.status === 503 || /503|unavailable|temporarily unavailable/i.test(error?.message || "");
+  return [400, 404, 429, 500, 502, 503, 504].includes(error?.status) || /503|unavailable|temporarily unavailable|not found|bad request/i.test(error?.message || "");
 }
 
 async function requestLlmAnswer(prompt, fetcher, signal, model) {
@@ -460,7 +460,7 @@ export async function generateAnswer({ context, message, history, sources }, fet
   const prompt = buildLlmPrompt({ context, message, history, sources });
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), config.hfTimeoutMs);
-  const models = [...new Set([config.hfModel, config.hfFallbackModel].filter(Boolean))];
+  const models = [...new Set([config.hfModel, ...config.hfFallbackModels].filter(Boolean))];
 
   try {
     let lastError = null;

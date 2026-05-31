@@ -7,7 +7,7 @@ CuraLink is a hosted MERN prototype for source-backed medical research assistanc
 - React + Vite client
 - Node + Express API
 - MongoDB Atlas persistence, with an in-memory fallback for local demos
-- Hugging Face Inference using `Qwen/Qwen2.5-7B-Instruct` with `Qwen/Qwen2.5-3B-Instruct` as fallback
+- Hugging Face Inference using `Qwen/Qwen2.5-7B-Instruct` with Qwen fallback models
 - OpenAlex, PubMed E-utilities, and ClinicalTrials.gov v2 retrieval adapters
 
 ## Local Setup

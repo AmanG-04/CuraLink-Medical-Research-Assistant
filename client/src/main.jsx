@@ -154,17 +154,87 @@ function isSkip(value = "") {
 }
 
 async function apiRequest(path, options = {}) {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
-    ...options
-  });
+  const method = (options.method || "GET").toUpperCase();
+
+  let response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+      ...options
+    });
+  } catch (cause) {
+    const error = new Error(`Network request failed for ${method} ${path}`);
+    error.path = path;
+    error.method = method;
+    error.cause = cause;
+    throw error;
+  }
 
   if (!response.ok) {
-    const payload = await response.json().catch(() => ({}));
-    throw new Error(payload.details || payload.error || `Request failed with ${response.status}`);
+    const rawBody = await response.text().catch(() => "");
+    let payload = {};
+
+    try {
+      payload = rawBody ? JSON.parse(rawBody) : {};
+    } catch {
+      payload = { rawBody };
+    }
+
+    const error = new Error(payload.details || payload.error || `Request failed with ${response.status}`);
+    error.path = path;
+    error.method = method;
+    error.status = response.status;
+    error.details = payload.details || payload.error || rawBody;
+    error.responseBody = rawBody;
+    throw error;
   }
 
   return response.json();
+}
+
+function explainClientError(error) {
+  if (!error) return "An unknown error occurred.";
+
+  if (error.status === 400) {
+    return "The backend rejected the request. This usually means the model was unavailable or the prompt payload was invalid. Try again in a moment or simplify the question.";
+  }
+
+  if (error.status === 401 || error.status === 403) {
+    return "The backend or model provider rejected the request because credentials or access are missing.";
+  }
+
+  if (error.status === 429) {
+    return "The backend or model provider is rate-limiting requests. Please wait and try again.";
+  }
+
+  if (error.status === 500) {
+    return "The backend hit an internal error while generating the answer.";
+  }
+
+  if (error.status === 503) {
+    return "The backend or model provider is temporarily unavailable. Please retry after a short wait.";
+  }
+
+  if (/failed to fetch/i.test(error.message || "")) {
+    return "The backend may still be turning on, or the network request could not reach it.";
+  }
+
+  return error.message || "Something went wrong while generating the answer.";
+}
+
+function logClientError(error, context = {}) {
+  const logPayload = {
+    message: error?.message,
+    status: error?.status,
+    method: error?.method,
+    path: error?.path,
+    details: error?.details,
+    responseBody: error?.responseBody,
+    context,
+    cause: error?.cause?.message || error?.cause
+  };
+
+  console.error("CuraLink request failed", logPayload);
 }
 
 async function wakeBackend() {
@@ -347,10 +417,13 @@ function App() {
       setServerTurns(payload.turns || []);
       setLocalTurns(preservedLocalTurns);
     } catch (err) {
+      logClientError(err, {
+        persona,
+        readyState: isResearchReady ? "research" : "intake",
+        question
+      });
       setError(err.message);
-      const friendlyMessage = /failed to fetch/i.test(err?.message || "")
-        ? "The backend may still be turning on. Please wait about 30 seconds and try again."
-        : `I could not generate the answer yet: ${err.message}`;
+      const friendlyMessage = `I could not generate the answer yet: ${explainClientError(err)}`;
       setLocalTurns((turns) => [
         ...turns,
         assistantTurn(friendlyMessage)
