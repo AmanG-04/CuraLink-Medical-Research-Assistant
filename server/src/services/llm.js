@@ -400,7 +400,11 @@ function fallbackStructuredAnswer({ context, sources }) {
   ].join("\n\n");
 }
 
-async function requestLlmAnswer(prompt, fetcher, signal) {
+function isUnavailableError(error) {
+  return error?.status === 503 || /503|unavailable|temporarily unavailable/i.test(error?.message || "");
+}
+
+async function requestLlmAnswer(prompt, fetcher, signal, model) {
   const response = await fetcher(
     "https://router.huggingface.co/v1/chat/completions",
     {
@@ -410,7 +414,7 @@ async function requestLlmAnswer(prompt, fetcher, signal) {
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        model: config.hfModel,
+        model,
         messages: [
           {
             role: "system",
@@ -426,9 +430,26 @@ async function requestLlmAnswer(prompt, fetcher, signal) {
     }
   );
 
-  if (!response.ok) throw new Error(`Hugging Face returned ${response.status}`);
+  if (!response.ok) {
+    const error = new Error(`Hugging Face returned ${response.status}`);
+    error.status = response.status;
+    throw error;
+  }
   const payload = await response.json();
   return stripPromptEcho(extractChatContent(payload) || extractGeneratedText(payload), prompt);
+}
+
+async function generateWithModel(prompt, sources, fetcher, signal, model) {
+  const generated = await requestLlmAnswer(prompt, fetcher, signal, model);
+  let answer = backfillSourceAttribution(coerceStructuredAnswer(generated), sources);
+  if (isAnswerUsable(answer, sources)) return answer;
+
+  const stricterPrompt = `${prompt}\n\nImportant formatting constraints:\n- Keep each section concise (2-5 sentences).\n- Do not output numbered citation dumps like 1,2,3,...\n- Cite evidence only as [P#] or [T#].\n- If unsure, write \"Not enough evidence.\"`;
+  const retryGenerated = await requestLlmAnswer(stricterPrompt, fetcher, signal, model);
+  answer = backfillSourceAttribution(coerceStructuredAnswer(retryGenerated), sources);
+  if (isAnswerUsable(answer, sources)) return answer;
+
+  return null;
 }
 
 export async function generateAnswer({ context, message, history, sources }, fetcher = fetch) {
@@ -439,20 +460,33 @@ export async function generateAnswer({ context, message, history, sources }, fet
   const prompt = buildLlmPrompt({ context, message, history, sources });
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), config.hfTimeoutMs);
+  const models = [...new Set([config.hfModel, config.hfFallbackModel].filter(Boolean))];
 
   try {
-    try {
-      const generated = await requestLlmAnswer(prompt, fetcher, controller.signal);
-      let answer = backfillSourceAttribution(coerceStructuredAnswer(generated), sources);
-      if (isAnswerUsable(answer, sources)) return answer;
+    let lastError = null;
 
-      const stricterPrompt = `${prompt}\n\nImportant formatting constraints:\n- Keep each section concise (2-5 sentences).\n- Do not output numbered citation dumps like 1,2,3,...\n- Cite evidence only as [P#] or [T#].\n- If unsure, write \"Not enough evidence.\"`;
-      const retryGenerated = await requestLlmAnswer(stricterPrompt, fetcher, controller.signal);
-      answer = backfillSourceAttribution(coerceStructuredAnswer(retryGenerated), sources);
-      if (isAnswerUsable(answer, sources)) return answer;
-    } catch (error) {
-      const aborted = error?.name === "AbortError" || /aborted/i.test(error?.message || "");
-      if (!aborted) throw error;
+    for (const model of models) {
+      try {
+        const answer = await generateWithModel(prompt, sources, fetcher, controller.signal, model);
+        if (answer) return answer;
+      } catch (error) {
+        const aborted = error?.name === "AbortError" || /aborted/i.test(error?.message || "");
+        if (aborted) {
+          return fallbackStructuredAnswer({ context, sources });
+        }
+
+        if (isUnavailableError(error) && model !== models[models.length - 1]) {
+          lastError = error;
+          continue;
+        }
+
+        lastError = error;
+        break;
+      }
+    }
+
+    if (lastError && !isUnavailableError(lastError)) {
+      throw lastError;
     }
 
     return fallbackStructuredAnswer({ context, sources });

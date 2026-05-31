@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { config } from "../src/config/env.js";
 import { coerceStructuredAnswer, generateAnswer } from "../src/services/llm.js";
 
 describe("llm answer coercion", () => {
@@ -75,12 +76,59 @@ describe("llm answer coercion", () => {
       fetcher
     );
 
-    expect(callCount).toBe(2);
+    expect(callCount).toBe(4);
     expect(answer).toContain("Condition Overview:");
     expect(answer).toContain("Research Insights:");
     expect(answer).toContain("Source Attribution:");
     expect(answer).toContain("[P1]");
     expect(answer).not.toContain("1,2,3,4,5,6,7");
+  });
+
+  it("retries with the qwen fallback model when hugging face returns 503", async () => {
+    const models = [];
+    const fetcher = async (_url, options) => {
+      const body = JSON.parse(options.body);
+      models.push(body.model);
+
+      if (models.length === 1) {
+        return new Response("service unavailable", { status: 503 });
+      }
+
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: [
+                  "Condition Overview: The condition is being reviewed with available evidence.",
+                  "Research Insights: Evidence remains limited.",
+                  "Clinical Trials: Not enough evidence.",
+                  "Source Attribution: [P1]"
+                ].join("\n")
+              }
+            }
+          ]
+        }),
+        { headers: { "Content-Type": "application/json" } }
+      );
+    };
+
+    const answer = await generateAnswer(
+      {
+        context: { condition: "kidney stones", question: "how to fix" },
+        message: "how to fix",
+        history: [],
+        sources: {
+          publications: [{ id: "p1", title: "Hydration and stone prevention", source: "PubMed", year: 2024 }],
+          clinicalTrials: []
+        }
+      },
+      fetcher
+    );
+
+    expect(models).toEqual([config.hfModel, config.hfFallbackModel]);
+    expect(answer).toContain("Condition Overview:");
+    expect(answer).toContain("[P1]");
   });
 
   it("returns a safe structured answer when the model request is aborted", async () => {

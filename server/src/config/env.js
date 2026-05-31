@@ -14,6 +14,7 @@ export const config = {
   clientOrigin: process.env.CLIENT_ORIGIN || "http://localhost:5173",
   hfApiToken: process.env.HF_API_TOKEN || "",
   hfModel: process.env.HF_MODEL || "Qwen/Qwen2.5-7B-Instruct",
+  hfFallbackModel: process.env.HF_FALLBACK_MODEL || "Qwen/Qwen2.5-3B-Instruct",
   hfTimeoutMs: toInt(process.env.HF_TIMEOUT_MS, 30000),
   ncbiApiKey: process.env.NCBI_API_KEY || "",
   ncbiTool: process.env.NCBI_TOOL || "curalink",

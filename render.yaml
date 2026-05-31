@@ -16,6 +16,8 @@ services:
         sync: false
       - key: HF_MODEL
         value: Qwen/Qwen2.5-7B-Instruct
+      - key: HF_FALLBACK_MODEL
+        value: Qwen/Qwen2.5-3B-Instruct
       - key: NCBI_API_KEY
         sync: false
       - key: NCBI_TOOL
