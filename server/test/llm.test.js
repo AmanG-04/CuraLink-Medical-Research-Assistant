@@ -1,16 +1,28 @@
 import { describe, expect, it } from "vitest";
 import { config } from "../src/config/env.js";
 import { coerceStructuredAnswer, generateAnswer } from "../src/services/llm.js";
+import { beforeEach, afterEach } from "vitest";
+
+let originalToken;
+beforeEach(() => {
+  originalToken = config.hfApiToken;
+  config.hfApiToken = "mock-token";
+});
+afterEach(() => {
+  config.hfApiToken = originalToken;
+});
 
 describe("llm answer coercion", () => {
   it("accepts canonical headings", () => {
-    const output = coerceStructuredAnswer([
-      "Condition Overview: Kidney stones can cause severe pain.",
-      "Research Insights: Studies suggest hydration helps reduce recurrence.",
-      "Clinical Trials: Not enough evidence.",
-      "Source Attribution: [P1]",
-      "Safety Note: Consult a clinician."
-    ].join("\n"));
+    const output = coerceStructuredAnswer(
+      [
+        "Condition Overview: Kidney stones can cause severe pain.",
+        "Research Insights: Studies suggest hydration helps reduce recurrence.",
+        "Clinical Trials: Not enough evidence.",
+        "Source Attribution: [P1]",
+        "Safety Note: Consult a clinician.",
+      ].join("\n"),
+    );
 
     expect(output).toContain("Condition Overview:");
     expect(output).toContain("Research Insights:");
@@ -20,14 +32,18 @@ describe("llm answer coercion", () => {
   });
 
   it("normalizes heading variants", () => {
-    const output = coerceStructuredAnswer([
-      "Condition: Kidney stones can be painful.",
-      "Insights: Evidence is mixed.",
-      "Trials: Not enough evidence.",
-      "Sources: [P1], [T1]"
-    ].join("\n"));
+    const output = coerceStructuredAnswer(
+      [
+        "Condition: Kidney stones can be painful.",
+        "Insights: Evidence is mixed.",
+        "Trials: Not enough evidence.",
+        "Sources: [P1], [T1]",
+      ].join("\n"),
+    );
 
-    expect(output).toContain("Condition Overview:\nKidney stones can be painful.");
+    expect(output).toContain(
+      "Condition Overview:\nKidney stones can be painful.",
+    );
     expect(output).toContain("Research Insights:\nEvidence is mixed.");
     expect(output).toContain("Clinical Trials:\nNot enough evidence.");
     expect(output).toContain("Source Attribution:\n[P1], [T1]");
@@ -35,7 +51,9 @@ describe("llm answer coercion", () => {
   });
 
   it("coerces plain text into required sections", () => {
-    const output = coerceStructuredAnswer("Kidney stone pain may be severe. Evidence depends on source quality.");
+    const output = coerceStructuredAnswer(
+      "Kidney stone pain may be severe. Evidence depends on source quality.",
+    );
 
     expect(output).toContain("Condition Overview:");
     expect(output).toContain("Research Insights:");
@@ -54,12 +72,12 @@ describe("llm answer coercion", () => {
             {
               message: {
                 content:
-                  "Condition Overview: kidney stones are painful 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25"
-              }
-            }
-          ]
+                  "Condition Overview: kidney stones are painful 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25",
+              },
+            },
+          ],
         }),
-        { headers: { "Content-Type": "application/json" } }
+        { headers: { "Content-Type": "application/json" } },
       );
     };
 
@@ -69,11 +87,18 @@ describe("llm answer coercion", () => {
         message: "how to fix",
         history: [],
         sources: {
-          publications: [{ id: "p1", title: "Hydration and stone prevention", source: "PubMed", year: 2024 }],
-          clinicalTrials: []
-        }
+          publications: [
+            {
+              id: "p1",
+              title: "Hydration and stone prevention",
+              source: "PubMed",
+              year: 2024,
+            },
+          ],
+          clinicalTrials: [],
+        },
       },
-      fetcher
+      fetcher,
     );
 
     expect(callCount).toBe(6);
@@ -103,13 +128,13 @@ describe("llm answer coercion", () => {
                   "Condition Overview: The condition is being reviewed with available evidence.",
                   "Research Insights: Evidence remains limited.",
                   "Clinical Trials: Not enough evidence.",
-                  "Source Attribution: [P1]"
-                ].join("\n")
-              }
-            }
-          ]
+                  "Source Attribution: [P1]",
+                ].join("\n"),
+              },
+            },
+          ],
         }),
-        { headers: { "Content-Type": "application/json" } }
+        { headers: { "Content-Type": "application/json" } },
       );
     };
 
@@ -119,11 +144,18 @@ describe("llm answer coercion", () => {
         message: "how to fix",
         history: [],
         sources: {
-          publications: [{ id: "p1", title: "Hydration and stone prevention", source: "PubMed", year: 2024 }],
-          clinicalTrials: []
-        }
+          publications: [
+            {
+              id: "p1",
+              title: "Hydration and stone prevention",
+              source: "PubMed",
+              year: 2024,
+            },
+          ],
+          clinicalTrials: [],
+        },
       },
-      fetcher
+      fetcher,
     );
 
     expect(models).toEqual([config.hfModel, config.hfFallbackModels[0]]);
@@ -150,13 +182,13 @@ describe("llm answer coercion", () => {
                   "Condition Overview: The condition is being reviewed with available evidence.",
                   "Research Insights: Evidence remains limited.",
                   "Clinical Trials: Not enough evidence.",
-                  "Source Attribution: [P1]"
-                ].join("\n")
-              }
-            }
-          ]
+                  "Source Attribution: [P1]",
+                ].join("\n"),
+              },
+            },
+          ],
         }),
-        { headers: { "Content-Type": "application/json" } }
+        { headers: { "Content-Type": "application/json" } },
       );
     };
 
@@ -166,11 +198,18 @@ describe("llm answer coercion", () => {
         message: "how to fix",
         history: [],
         sources: {
-          publications: [{ id: "p1", title: "Hydration and stone prevention", source: "PubMed", year: 2024 }],
-          clinicalTrials: []
-        }
+          publications: [
+            {
+              id: "p1",
+              title: "Hydration and stone prevention",
+              source: "PubMed",
+              year: 2024,
+            },
+          ],
+          clinicalTrials: [],
+        },
       },
-      fetcher
+      fetcher,
     );
 
     expect(models).toEqual([config.hfModel, config.hfFallbackModels[0]]);
@@ -191,11 +230,18 @@ describe("llm answer coercion", () => {
         message: "how to fix",
         history: [],
         sources: {
-          publications: [{ id: "p1", title: "Stone management", source: "PubMed", year: 2023 }],
-          clinicalTrials: []
-        }
+          publications: [
+            {
+              id: "p1",
+              title: "Stone management",
+              source: "PubMed",
+              year: 2023,
+            },
+          ],
+          clinicalTrials: [],
+        },
       },
-      fetcher
+      fetcher,
     );
 
     expect(answer).toContain("Condition Overview:");
@@ -215,13 +261,13 @@ describe("llm answer coercion", () => {
                   "Condition Overview: DBS may help motor symptoms in PD [P1].",
                   "Research Insights: Cognitive effects vary across studies [P2].",
                   "Clinical Trials: Not enough evidence.",
-                  "Source Attribution: Not enough evidence."
-                ].join("\n")
-              }
-            }
-          ]
+                  "Source Attribution: Not enough evidence.",
+                ].join("\n"),
+              },
+            },
+          ],
         }),
-        { headers: { "Content-Type": "application/json" } }
+        { headers: { "Content-Type": "application/json" } },
       );
 
     const answer = await generateAnswer(
@@ -231,13 +277,23 @@ describe("llm answer coercion", () => {
         history: [],
         sources: {
           publications: [
-            { id: "p1", title: "DBS motor outcomes", source: "PubMed", year: 2024 },
-            { id: "p2", title: "DBS cognition review", source: "OpenAlex", year: 2022 }
+            {
+              id: "p1",
+              title: "DBS motor outcomes",
+              source: "PubMed",
+              year: 2024,
+            },
+            {
+              id: "p2",
+              title: "DBS cognition review",
+              source: "OpenAlex",
+              year: 2022,
+            },
           ],
-          clinicalTrials: []
-        }
+          clinicalTrials: [],
+        },
       },
-      fetcher
+      fetcher,
     );
 
     expect(answer).toContain("Source Attribution:\n[P1] DBS motor outcomes");
@@ -245,7 +301,7 @@ describe("llm answer coercion", () => {
     expect(answer).not.toContain("Source Attribution:\nNot enough evidence.");
   });
 
-  it("mentions related trials when no exact match is found", async () => {
+  it("preserves an abstention instead of inventing trial matching conclusions", async () => {
     const fetcher = async () =>
       new Response(
         JSON.stringify({
@@ -256,36 +312,50 @@ describe("llm answer coercion", () => {
                   "Condition Overview: Not enough evidence.",
                   "Research Insights: Not enough evidence.",
                   "Clinical Trials: Not enough evidence.",
-                  "Source Attribution: Not enough evidence."
-                ].join("\n")
-              }
-            }
-          ]
+                  "Source Attribution: Not enough evidence.",
+                ].join("\n"),
+              },
+            },
+          ],
         }),
-        { headers: { "Content-Type": "application/json" } }
+        { headers: { "Content-Type": "application/json" } },
       );
 
     const answer = await generateAnswer(
       {
-        context: { condition: "Parkinson disease", question: "which trials fit", userType: "clinician" },
+        context: {
+          condition: "Parkinson disease",
+          question: "which trials fit",
+          userType: "clinician",
+        },
         message: "which trials fit",
         history: [],
         sources: {
           publications: [],
           clinicalTrials: [
-            { id: "T1", title: "Related DBS trial", status: "RECRUITING", location: "Canada" },
-            { id: "T2", title: "Another related trial", status: "COMPLETED", location: "Canada" }
-          ]
-        }
+            {
+              id: "T1",
+              title: "Related DBS trial",
+              status: "RECRUITING",
+              location: "Canada",
+            },
+            {
+              id: "T2",
+              title: "Another related trial",
+              status: "COMPLETED",
+              location: "Canada",
+            },
+          ],
+        },
       },
-      fetcher
+      fetcher,
     );
 
-    expect(answer).toContain("I couldn’t find an exact trial match");
-    expect(answer).toContain("[T1] Related DBS trial");
+    expect(answer).toContain("Clinical Trials:\nNot enough evidence.");
+    expect(answer).not.toContain("exact trial match");
   });
 
-  it("summarizes the newest publications in the overview for latest-treatment queries", async () => {
+  it("does not invent treatment conclusions when the model abstains", async () => {
     const fetcher = async () =>
       new Response(
         JSON.stringify({
@@ -296,35 +366,46 @@ describe("llm answer coercion", () => {
                   "Condition Overview: Not enough evidence.",
                   "Research Insights: Not enough evidence.",
                   "Clinical Trials: Not enough evidence.",
-                  "Source Attribution: Not enough evidence."
-                ].join("\n")
-              }
-            }
-          ]
+                  "Source Attribution: Not enough evidence.",
+                ].join("\n"),
+              },
+            },
+          ],
         }),
-        { headers: { "Content-Type": "application/json" } }
+        { headers: { "Content-Type": "application/json" } },
       );
 
     const answer = await generateAnswer(
       {
-        context: { condition: "lung cancer", question: "latest treatments", userType: "patient" },
+        context: {
+          condition: "lung cancer",
+          question: "latest treatments",
+          userType: "patient",
+        },
         message: "latest treatments",
         history: [],
         sources: {
           publications: [
-            { id: "P1", title: "Newest lung cancer therapy", source: "OpenAlex", year: 2026 },
-            { id: "P2", title: "Earlier lung cancer review", source: "PubMed", year: 2024 }
+            {
+              id: "P1",
+              title: "Newest lung cancer therapy",
+              source: "OpenAlex",
+              year: 2026,
+            },
+            {
+              id: "P2",
+              title: "Earlier lung cancer review",
+              source: "PubMed",
+              year: 2024,
+            },
           ],
-          clinicalTrials: []
-        }
+          clinicalTrials: [],
+        },
       },
-      fetcher
+      fetcher,
     );
 
-    expect(answer).toContain("newest retrieved publications");
-    expect(answer).toContain("A concrete takeaway from the latest evidence is");
-    expect(answer).toContain("latest shortlisted publications are actually saying");
-    expect(answer).toContain("Newest lung cancer therapy");
-    expect(answer).toContain("suggests:");
+    expect(answer).toContain("Condition Overview:\nNot enough evidence.");
+    expect(answer).not.toContain("suggests:");
   });
 });

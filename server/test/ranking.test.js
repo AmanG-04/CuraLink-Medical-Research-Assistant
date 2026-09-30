@@ -1,20 +1,33 @@
 import { describe, expect, it } from "vitest";
-import { dedupePublications, rankClinicalTrials, rankPublications, selectTopSources } from "../src/services/ranking.js";
+import {
+  dedupePublications,
+  rankClinicalTrials,
+  rankPublications,
+  selectTopSources,
+} from "../src/services/ranking.js";
 
 const context = {
   condition: "Parkinson disease",
   intent: "deep brain stimulation",
   location: "Toronto, Canada",
   query: "Parkinson disease deep brain stimulation",
-  keywords: ["parkinson", "disease", "deep", "brain", "stimulation"]
+  keywords: ["parkinson", "disease", "deep", "brain", "stimulation"],
 };
 
 describe("ranking", () => {
   it("de-duplicates publications by DOI, PMID, URL, or normalized title", () => {
     const deduped = dedupePublications([
-      { title: "Adaptive DBS in Parkinson Disease", doi: "10.1/example", url: "https://a" },
-      { title: "Adaptive DBS in Parkinson Disease", doi: "10.1/example", url: "https://b" },
-      { title: "Different paper", pmid: "123" }
+      {
+        title: "Adaptive DBS in Parkinson Disease",
+        doi: "10.1/example",
+        url: "https://a",
+      },
+      {
+        title: "Adaptive DBS in Parkinson Disease",
+        doi: "10.1/example",
+        url: "https://b",
+      },
+      { title: "Different paper", pmid: "123" },
     ]);
 
     expect(deduped).toHaveLength(2);
@@ -28,17 +41,17 @@ describe("ranking", () => {
           summary: "Skin findings",
           source: "OpenAlex",
           year: 2026,
-          credibility: 1
+          credibility: 1,
         },
         {
           title: "Deep brain stimulation for Parkinson disease",
           summary: "DBS outcomes and patient selection",
           source: "PubMed",
           year: 2024,
-          credibility: 1
-        }
+          credibility: 1,
+        },
       ],
-      context
+      context,
     );
 
     expect(ranked[0].title).toContain("Deep brain stimulation");
@@ -57,7 +70,7 @@ describe("ranking", () => {
           status: "RECRUITING",
           location: "Toronto, Canada",
           year: 2025,
-          credibility: 1
+          credibility: 1,
         },
         {
           id: "NCT2",
@@ -68,10 +81,10 @@ describe("ranking", () => {
           status: "COMPLETED",
           location: "Paris, France",
           year: 2012,
-          credibility: 1
-        }
+          credibility: 1,
+        },
       ],
-      context
+      context,
     );
 
     expect(ranked[0].id).toBe("NCT1");
@@ -89,7 +102,7 @@ describe("ranking", () => {
           status: "COMPLETED",
           location: "Boston, Massachusetts, United States",
           year: 2020,
-          credibility: 1
+          credibility: 1,
         },
         {
           id: "NCT-NONUS",
@@ -100,10 +113,10 @@ describe("ranking", () => {
           status: "COMPLETED",
           location: "Paris, France",
           year: 2020,
-          credibility: 1
-        }
+          credibility: 1,
+        },
       ],
-      { ...context, location: "USA" }
+      { ...context, location: "USA" },
     );
 
     expect(ranked[0].id).toBe("NCT-US");
@@ -121,14 +134,14 @@ describe("ranking", () => {
           status: "RECRUITING",
           location: "Toronto, Canada",
           year: 2025,
-          credibility: 1
-        }
+          credibility: 1,
+        },
       ],
       {
         ...context,
         patientAge: "72",
-        referralMode: true
-      }
+        referralMode: true,
+      },
     );
 
     expect(ranked[0].eligibilityConflict).toBe(true);
@@ -143,22 +156,25 @@ describe("ranking", () => {
           type: "clinicalTrial",
           title: "DBS study",
           summary: "Deep brain stimulation",
-          eligibility: "Exclusion: current use of warfarin or other anticoagulants.",
+          eligibility:
+            "Exclusion: current use of warfarin or other anticoagulants.",
           status: "RECRUITING",
           location: "Toronto, Canada",
           year: 2025,
-          credibility: 1
-        }
+          credibility: 1,
+        },
       ],
       {
         ...context,
         patientMedications: "levodopa, warfarin",
-        referralMode: true
-      }
+        referralMode: true,
+      },
     );
 
     expect(ranked[0].eligibilityConflict).toBe(true);
-    expect(ranked[0].eligibilityConflictReasons.join(" ")).toContain("warfarin");
+    expect(ranked[0].eligibilityConflictReasons.join(" ")).toContain(
+      "warfarin",
+    );
   });
 
   it("does not treat treatment cycle ranges as age limits", () => {
@@ -169,18 +185,19 @@ describe("ranking", () => {
           type: "clinicalTrial",
           title: "Lung cancer trial",
           summary: "Chemo-immunotherapy",
-          eligibility: "Patients receiving 4-6 cycles of therapy before imaging assessment.",
+          eligibility:
+            "Patients receiving 4-6 cycles of therapy before imaging assessment.",
           status: "RECRUITING",
           location: "Canada",
           year: 2025,
-          credibility: 1
-        }
+          credibility: 1,
+        },
       ],
       {
         ...context,
         patientAge: "50",
-        referralMode: true
-      }
+        referralMode: true,
+      },
     );
 
     expect(ranked[0].eligibilityConflict).toBe(false);
@@ -191,16 +208,18 @@ describe("ranking", () => {
     const publications = Array.from({ length: 10 }, (_, index) => ({
       id: `P${index}`,
       type: "publication",
-      score: 1 - index / 100
+      score: 1 - index / 100,
     }));
     const trials = Array.from({ length: 4 }, (_, index) => ({
       id: `T${index}`,
       type: "clinicalTrial",
-      score: 0.9 - index / 100
+      score: 0.9 - index / 100,
     }));
 
     const selected = selectTopSources(publications, trials, 8);
-    expect(selected.publications.length + selected.clinicalTrials.length).toBe(8);
+    expect(selected.publications.length + selected.clinicalTrials.length).toBe(
+      8,
+    );
     expect(selected.clinicalTrials.length).toBeGreaterThan(0);
     expect(selected.clinicalTrials.length).toBeLessThanOrEqual(3);
   });

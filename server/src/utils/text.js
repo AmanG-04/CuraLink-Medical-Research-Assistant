@@ -5,12 +5,16 @@ export function arrayify(value) {
 
 export function cleanText(value = "") {
   return String(value)
-    .replace(/&#x([0-9a-f]+);/gi, (_match, hex) => String.fromCodePoint(Number.parseInt(hex, 16)))
-    .replace(/&#(\d+);/g, (_match, code) => String.fromCodePoint(Number.parseInt(code, 10)))
+    .replace(/&#x([0-9a-f]+);/gi, (_match, hex) =>
+      String.fromCodePoint(Number.parseInt(hex, 16)),
+    )
+    .replace(/&#(\d+);/g, (_match, code) =>
+      String.fromCodePoint(Number.parseInt(code, 10)),
+    )
     .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, "\"")
+    .replace(/&quot;/g, '"')
     .replace(/&apos;/g, "'")
     .replace(/<[^>]+>/g, " ")
     .replace(/\s+/g, " ")
@@ -82,13 +86,13 @@ export function keywordSet(...parts) {
     "yesterday",
     "today",
     "tomorrow",
-    "with"
+    "with",
   ]);
 
   return new Set(
     normalize(parts.filter(Boolean).join(" "))
       .split(" ")
-      .filter((word) => word.length > 2 && !stopWords.has(word))
+      .filter((word) => word.length > 2 && !stopWords.has(word)),
   );
 }
 
@@ -105,5 +109,8 @@ export function keywordScore(text, keywords) {
 }
 
 export function titleKey(title = "") {
-  return normalize(title).replace(/\b(the|a|an)\b/g, "").replace(/\s+/g, " ").trim();
+  return normalize(title)
+    .replace(/\b(the|a|an)\b/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }

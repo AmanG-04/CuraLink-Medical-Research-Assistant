@@ -11,11 +11,46 @@ function recencyScore(year) {
 }
 
 function exactContextBoost(record, context) {
-  const text = `${record.title} ${record.summary} ${record.eligibility || ""}`.toLowerCase();
+  const text =
+    `${record.title} ${record.summary} ${record.eligibility || ""}`.toLowerCase();
   let boost = 0;
-  if (context.condition && text.includes(context.condition.toLowerCase())) boost += 0.14;
-  if (context.intent && text.includes(context.intent.toLowerCase())) boost += 0.14;
+  if (context.condition && text.includes(context.condition.toLowerCase()))
+    boost += 0.14;
+  if (context.intent && text.includes(context.intent.toLowerCase()))
+    boost += 0.14;
   return boost;
+}
+
+// BM25 lexical ranking supplies a reproducible baseline without a vector service.
+export function bm25Scores(records, context) {
+  const terms = [
+    ...keywordSet(context.condition, context.intent, context.question),
+  ];
+  const documents = records.map(
+    (record) =>
+      `${record.title || ""} ${record.summary || ""} ${record.eligibility || ""}`
+        .toLowerCase()
+        .match(/[a-z0-9]+/g) || [],
+  );
+  const average =
+    documents.reduce((sum, doc) => sum + doc.length, 0) /
+      (documents.length || 1) || 1;
+  return documents.map((doc) =>
+    terms.reduce((score, term) => {
+      const frequency = doc.filter((word) => word === term).length;
+      const containing = documents.filter((words) =>
+        words.includes(term),
+      ).length;
+      const idf = Math.log(
+        1 + (documents.length - containing + 0.5) / (containing + 0.5),
+      );
+      return (
+        score +
+        (idf * frequency * 2.2) /
+          (frequency + 1.2 * (0.25 + (0.75 * doc.length) / average))
+      );
+    }, 0),
+  );
 }
 
 export function dedupePublications(publications) {
@@ -27,7 +62,7 @@ export function dedupePublications(publications) {
       publication.doi && `doi:${publication.doi.toLowerCase()}`,
       publication.pmid && `pmid:${publication.pmid}`,
       publication.url && `url:${publication.url.toLowerCase()}`,
-      publication.title && `title:${titleKey(publication.title)}`
+      publication.title && `title:${titleKey(publication.title)}`,
     ].filter(Boolean);
 
     if (keys.some((key) => seen.has(key))) continue;
@@ -43,31 +78,51 @@ export function rankPublications(publications, context) {
     context.condition,
     context.intent,
     context.retrievalQuery,
-    ...(context.keywords || [])
+    ...(context.keywords || []),
   );
 
-  return dedupePublications(publications)
-    .map((publication) => {
+  const deduped = dedupePublications(publications).filter(
+    (publication) => !publication.retracted,
+  );
+  const lexical = bm25Scores(deduped, context);
+  const maximum = Math.max(...lexical, 1);
+  return deduped
+    .map((publication, index) => {
       const text = `${publication.title} ${publication.summary} ${(publication.authors || []).join(" ")} ${publication.journal}`;
       const relevance = keywordScore(text, keywords);
       const citations = Math.min((publication.citedByCount || 0) / 250, 1);
-      const openAlexRelevance = Math.min((publication.relevanceScore || 0) / 2000, 1);
+      const openAlexRelevance = Math.min(
+        (publication.relevanceScore || 0) / 2000,
+        1,
+      );
       const score =
-        relevance * 0.5 +
+        relevance * 0.3 +
+        (lexical[index] / maximum) * 0.2 +
         recencyScore(publication.year) * 0.2 +
         (publication.credibility || 0.75) * 0.16 +
         citations * 0.06 +
         openAlexRelevance * 0.06 +
         exactContextBoost(publication, context);
 
-      return { ...publication, score: Number(score.toFixed(4)) };
+      return {
+        ...publication,
+        score: Number(score.toFixed(4)),
+        rankingReasons: [
+          relevance > 0 ? "Query term overlap" : "Limited query overlap",
+          "BM25 lexical relevance",
+          publication.year
+            ? `Published ${publication.year}`
+            : "Year unavailable",
+        ],
+        relevance,
+      };
     })
     .sort((a, b) => b.score - a.score);
 }
 
 function trialStatusScore(status = "") {
   const normalized = status.toUpperCase();
-  if (normalized.includes("RECRUITING") && !normalized.includes("NOT_RECRUITING")) return 1;
+  if (normalized === "RECRUITING") return 1;
   if (normalized.includes("ACTIVE_NOT_RECRUITING")) return 0.78;
   if (normalized.includes("ENROLLING")) return 0.75;
   if (normalized.includes("COMPLETED")) return 0.42;
@@ -76,11 +131,31 @@ function trialStatusScore(status = "") {
 }
 
 function locationAliases(location = "") {
-  const normalized = String(location || "").toLowerCase().trim();
+  const normalized = String(location || "")
+    .toLowerCase()
+    .trim();
   if (!normalized) return [];
 
-  if (["usa", "us", "u.s.", "u.s", "united states", "united states of america", "america"].includes(normalized)) {
-    return ["usa", "us", "u.s.", "u.s", "united states", "united states of america", "america"];
+  if (
+    [
+      "usa",
+      "us",
+      "u.s.",
+      "u.s",
+      "united states",
+      "united states of america",
+      "america",
+    ].includes(normalized)
+  ) {
+    return [
+      "usa",
+      "us",
+      "u.s.",
+      "u.s",
+      "united states",
+      "united states of america",
+      "america",
+    ];
   }
 
   return [normalized];
@@ -101,20 +176,36 @@ function parsePatientAge(context = {}) {
 
 function extractAgeBounds(eligibilityText = "") {
   const text = eligibilityText.toLowerCase();
-  const hasAgeCue = /\b(age|aged|ages|years? old|yrs? old|older than|younger than|at least|between|adult(?:s)?\s+ages?)\b/i.test(text);
+  const hasAgeCue =
+    /\b(age|aged|ages|years? old|yrs? old|older than|younger than|at least|between|adult(?:s)?\s+ages?)\b/i.test(
+      text,
+    );
   if (!hasAgeCue) {
     return {};
   }
 
-  const between = text.match(/\b(?:age\s*)?(?:between\s*)?(\d{1,3})\s*(?:and|-|to)\s*(\d{1,3})\b/);
+  const between = text.match(
+    /\b(?:age(?:s|d)?\s*|between\s*)(\d{1,3})\s*(?:and|-|to)\s*(\d{1,3})\b/,
+  );
   if (between) {
-    return { min: Number.parseInt(between[1], 10), max: Number.parseInt(between[2], 10) };
+    return {
+      min: Number.parseInt(between[1], 10),
+      max: Number.parseInt(between[2], 10),
+    };
   }
 
-  const minMatch = text.match(/\b(?:at least|>=|older than|over)\s*(\d{1,3})\b/);
-  const maxMatch = text.match(/\b(?:up to|<=|under|younger than)\s*(\d{1,3})\b/);
-  const olderMatch = text.match(/\b(\d{1,3})\s*(?:years?|yrs?)?\s*(?:and older|or older)\b/);
-  const youngerMatch = text.match(/\b(\d{1,3})\s*(?:years?|yrs?)?\s*(?:and younger|or younger)\b/);
+  const minMatch = text.match(
+    /\b(?:at least|>=|older than|over)\s*(\d{1,3})\b/,
+  );
+  const maxMatch = text.match(
+    /\b(?:up to|<=|under|younger than)\s*(\d{1,3})\b/,
+  );
+  const olderMatch = text.match(
+    /\b(\d{1,3})\s*(?:years?|yrs?)?\s*(?:and older|or older)\b/,
+  );
+  const youngerMatch = text.match(
+    /\b(\d{1,3})\s*(?:years?|yrs?)?\s*(?:and younger|or younger)\b/,
+  );
 
   const bounds = {};
   if (minMatch) bounds.min = Number.parseInt(minMatch[1], 10);
@@ -126,8 +217,14 @@ function extractAgeBounds(eligibilityText = "") {
 
 function profileTerms(context = {}) {
   return [
-    ...normalizeList(context.patientComorbidities || context.patientProfile?.comorbidities || ""),
-    ...normalizeList(context.patientMedications || context.patientProfile?.medications || "")
+    ...normalizeList(
+      context.patientComorbidities ||
+        context.patientProfile?.comorbidities ||
+        "",
+    ),
+    ...normalizeList(
+      context.patientMedications || context.patientProfile?.medications || "",
+    ),
   ]
     .map((term) => term.toLowerCase())
     .filter((term) => term.length >= 3);
@@ -137,14 +234,24 @@ function evaluateEligibilityConflicts(trial, context) {
   const reasons = [];
   const eligibilityText = String(trial.eligibility || "").toLowerCase();
   const age = parsePatientAge(context);
-  const bounds = extractAgeBounds(eligibilityText);
+  const structuredMin = trial.minimumAge?.match(/^(\d+)\s+Years?$/i);
+  const structuredMax = trial.maximumAge?.match(/^(\d+)\s+Years?$/i);
+  const bounds = {
+    ...extractAgeBounds(eligibilityText),
+    ...(structuredMin ? { min: Number(structuredMin[1]) } : {}),
+    ...(structuredMax ? { max: Number(structuredMax[1]) } : {}),
+  };
 
   if (Number.isFinite(age)) {
     if (typeof bounds.min === "number" && age < bounds.min) {
-      reasons.push(`Age ${age} is below the study's minimum age ${bounds.min}.`);
+      reasons.push(
+        `Age ${age} is below the study's minimum age ${bounds.min}.`,
+      );
     }
     if (typeof bounds.max === "number" && age > bounds.max) {
-      reasons.push(`Age ${age} is above the study's maximum age ${bounds.max}.`);
+      reasons.push(
+        `Age ${age} is above the study's maximum age ${bounds.max}.`,
+      );
     }
   }
 
@@ -152,15 +259,20 @@ function evaluateEligibilityConflicts(trial, context) {
     .split(/[\n.\u2022;]+/)
     .map((segment) => segment.trim())
     .filter(Boolean);
-  const exclusionMarker = /(exclude|excluded|exclusion|not eligible|not allowed|must not|contraindicat|prohibited|no history of|without history of|currently taking|current use|taking|unable to)/i;
+  const exclusionMarker =
+    /(exclude|excluded|exclusion|not eligible|not allowed|must not|contraindicat|prohibited|no history of|without history of|currently taking|current use|taking|unable to)/i;
 
   for (const term of profileTerms(context)) {
-    const matchedSegment = segments.find((segment) => segment.includes(term) && exclusionMarker.test(segment));
+    const matchedSegment = segments.find(
+      (segment) => segment.includes(term) && exclusionMarker.test(segment),
+    );
     if (matchedSegment) {
       const label = context.patientMedications?.toLowerCase().includes(term)
         ? "medication"
         : "comorbidity";
-      reasons.push(`Possible ${label} conflict: the criteria mention "${term}" in an exclusion-related clause.`);
+      reasons.push(
+        `Possible ${label} conflict: the criteria mention "${term}" in an exclusion-related clause.`,
+      );
     }
   }
 
@@ -172,7 +284,7 @@ export function rankClinicalTrials(trials, context) {
     context.condition,
     context.intent,
     context.retrievalQuery,
-    ...(context.keywords || [])
+    ...(context.keywords || []),
   );
   const locationNeedles = locationAliases(context.location);
 
@@ -182,9 +294,18 @@ export function rankClinicalTrials(trials, context) {
       const relevance = keywordScore(text, keywords);
       const locationText = (trial.location || "").toLowerCase();
       const locationScore =
-        locationNeedles.length > 0 && locationNeedles.some((needle) => locationText.includes(needle)) ? 1 : 0;
-      const eligibilityConflictReasons = evaluateEligibilityConflicts(trial, context);
-      const conflictPenalty = Math.min(0.42, eligibilityConflictReasons.length * 0.14);
+        locationNeedles.length > 0 &&
+        locationNeedles.some((needle) => locationText.includes(needle))
+          ? 1
+          : 0;
+      const eligibilityConflictReasons = evaluateEligibilityConflicts(
+        trial,
+        context,
+      );
+      const conflictPenalty = Math.min(
+        0.42,
+        eligibilityConflictReasons.length * 0.14,
+      );
       const score =
         relevance * 0.43 +
         trialStatusScore(trial.status) * 0.24 +
@@ -200,32 +321,70 @@ export function rankClinicalTrials(trials, context) {
         score: Number(adjustedScore.toFixed(4)),
         eligibilityConflict: eligibilityConflictReasons.length > 0,
         eligibilityConflictReasons,
-        eligibilityMatch: eligibilityConflictReasons.length > 0 ? "review_against_profile" : "no_obvious_conflict"
+        eligibilityMatch:
+          eligibilityConflictReasons.length > 0
+            ? "review_against_profile"
+            : "unknown",
+        rankingReasons: [
+          locationScore
+            ? "Requested location found"
+            : "Location match not established",
+          `Registry status: ${trial.status || "unknown"}`,
+          "Eligibility requires study-team review",
+        ],
       };
     })
     .sort((a, b) => b.score - a.score);
 }
 
-export function selectTopSources(publications, clinicalTrials, limit = 8) {
+export function selectTopSources(
+  publications,
+  clinicalTrials,
+  limit = 8,
+  intent = "",
+) {
   const selected = [];
-  const topPubs = publications.slice(0, Math.min(5, publications.length));
-  const topTrials = clinicalTrials.slice(0, Math.min(3, clinicalTrials.length));
+  const trialFocused = /trial|eligib|recruit|screen/i.test(intent);
+  const publicationFocused =
+    /review|paper|publication|evidence|compare.*treatment/i.test(intent) &&
+    !trialFocused;
+  const topPubs = publications.slice(
+    0,
+    Math.min(
+      trialFocused ? 2 : publicationFocused ? limit : 5,
+      publications.length,
+    ),
+  );
+  const topTrials = clinicalTrials.slice(
+    0,
+    Math.min(
+      trialFocused ? 6 : publicationFocused ? 0 : 3,
+      clinicalTrials.length,
+    ),
+  );
 
   selected.push(...topPubs, ...topTrials);
 
   if (selected.length < limit) {
     const selectedIds = new Set(selected.map((item) => item.id));
-    const remaining = [...publications, ...clinicalTrials]
+    const remaining = [
+      ...publications,
+      ...(publicationFocused ? [] : clinicalTrials),
+    ]
       .filter((item) => !selectedIds.has(item.id))
       .sort((a, b) => b.score - a.score)
       .slice(0, limit - selected.length);
     selected.push(...remaining);
   }
 
-  const finalSources = selected.sort((a, b) => b.score - a.score).slice(0, limit);
+  const finalSources = selected
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit);
 
   return {
     publications: finalSources.filter((item) => item.type === "publication"),
-    clinicalTrials: finalSources.filter((item) => item.type === "clinicalTrial")
+    clinicalTrials: finalSources.filter(
+      (item) => item.type === "clinicalTrial",
+    ),
   };
 }

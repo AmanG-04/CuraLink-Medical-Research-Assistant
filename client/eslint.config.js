@@ -9,6 +9,10 @@ export default [
   },
   js.configs.recommended,
   {
+    files: ["playwright.config.js"],
+    languageOptions: { globals: globals.node }
+  },
+  {
     files: ["**/*.{js,jsx}"],
     languageOptions: {
       ecmaVersion: 2023,

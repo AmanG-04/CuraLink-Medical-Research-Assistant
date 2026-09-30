@@ -1,7 +1,40 @@
 import { describe, expect, it } from "vitest";
-import { buildResearchContext, extractLocation } from "../src/services/context.js";
+import {
+  buildResearchContext,
+  extractLocation,
+} from "../src/services/context.js";
 
 describe("research context", () => {
+  it("clears explicit optional context before building retrieval terms", () => {
+    const context = buildResearchContext(
+      {
+        message: "Explain the evidence",
+        location: "",
+        patientAge: "",
+        patientMedications: "",
+        symptoms: "",
+      },
+      {
+        condition: "Parkinson disease",
+        location: "Toronto",
+        patientAge: "72",
+        patientMedications: "warfarin",
+        symptoms: "tremor",
+      },
+    );
+    expect(context.location).toBe("");
+    expect(context.patientProfile.age).toBe("");
+    expect(context.retrievalQuery).not.toContain("warfarin");
+    expect(context.retrievalQuery).not.toContain("tremor");
+  });
+  it("allows natural-language condition and location changes without stale fields", () => {
+    const context = buildResearchContext(
+      { message: "Find trials for asthma near Boston" },
+      { condition: "Parkinson disease", location: "Toronto" },
+    );
+    expect(context.condition).toBe("asthma");
+    expect(context.location).toBe("Boston");
+  });
   it("uses structured fields ahead of natural-language extraction", () => {
     const context = buildResearchContext({
       userType: "clinician",
@@ -10,7 +43,7 @@ describe("research context", () => {
       symptoms: "tremor and rigidity",
       additionalQuery: "Deep brain stimulation",
       location: "Toronto, Canada",
-      message: "What does the latest research say?"
+      message: "What does the latest research say?",
     });
 
     expect(context.userType).toBe("clinician");
@@ -26,9 +59,12 @@ describe("research context", () => {
     const previous = {
       condition: "lung cancer",
       intent: "immunotherapy",
-      location: "Boston"
+      location: "Boston",
     };
-    const context = buildResearchContext({ message: "What are common risks?" }, previous);
+    const context = buildResearchContext(
+      { message: "What are common risks?" },
+      previous,
+    );
 
     expect(context.condition).toBe("lung cancer");
     expect(context.intent).toBe("immunotherapy");
@@ -39,7 +75,7 @@ describe("research context", () => {
   it("does not treat the initial question as the research focus", () => {
     const context = buildResearchContext(
       { disease: "cataract", message: "can i see directly to the sunlight?" },
-      {}
+      {},
     );
 
     expect(context.condition).toBe("cataract");
@@ -52,7 +88,7 @@ describe("research context", () => {
   it("expands age questions for retrieval without using the raw question as intent", () => {
     const context = buildResearchContext(
       { disease: "cataract", message: "can it happen in 21 year olds" },
-      {}
+      {},
     );
 
     expect(context.intent).toBe("");
@@ -61,17 +97,22 @@ describe("research context", () => {
   });
 
   it("extracts location hints from natural questions", () => {
-    expect(extractLocation("Find trials near Toronto, Canada")).toBe("Toronto, Canada");
+    expect(extractLocation("Find trials near Toronto, Canada")).toBe(
+      "Toronto, Canada",
+    );
   });
 
   it("updates intent for intervention-style follow-up questions", () => {
     const previous = {
       condition: "Parkinson disease",
       intent: "DBS",
-      location: "Toronto"
+      location: "Toronto",
     };
 
-    const context = buildResearchContext({ message: "can i take vitamin d" }, previous);
+    const context = buildResearchContext(
+      { message: "can i take vitamin d" },
+      previous,
+    );
 
     expect(context.condition).toBe("Parkinson disease");
     expect(context.intent.toLowerCase()).toContain("vitamin d");
@@ -88,9 +129,9 @@ describe("research context", () => {
         clinicalQuestionType: "eligibility screening",
         referralMode: true,
         location: "Canada",
-        message: "Which DBS trials fit this patient?"
+        message: "Which DBS trials fit this patient?",
       },
-      {}
+      {},
     );
 
     expect(context.userType).toBe("clinician");
@@ -106,7 +147,7 @@ describe("research context", () => {
   it("treats how-to-fix kidney stone questions as treatment intent", () => {
     const context = buildResearchContext(
       { disease: "kidney stones", message: "how to fix", symptoms: "pain" },
-      {}
+      {},
     );
 
     expect(context.intent).toBe("treatment management");

@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { decideResearchPlan, noResearchResponse } from "../src/services/researchPlanner.js";
+import {
+  decideResearchPlan,
+  noResearchResponse,
+} from "../src/services/researchPlanner.js";
 
 describe("research planner", () => {
   it("returns conversational no-tool action for greeting without medical context", () => {
@@ -11,9 +14,9 @@ describe("research planner", () => {
         symptoms: "",
         location: "",
         question: "hello",
-        isFollowUp: false
+        isFollowUp: false,
       },
-      conversation: { turns: [], context: {}, cachedRetrieval: {} }
+      conversation: { turns: [], context: {}, cachedRetrieval: {} },
     });
 
     expect(plan.action).toBe("none");
@@ -28,9 +31,9 @@ describe("research planner", () => {
         symptoms: "",
         location: "",
         question: "Can cataracts happen at 21?",
-        isFollowUp: false
+        isFollowUp: false,
       },
-      conversation: { turns: [], context: {}, cachedRetrieval: {} }
+      conversation: { turns: [], context: {}, cachedRetrieval: {} },
     });
 
     expect(plan.action).toBe("fresh");
@@ -39,30 +42,30 @@ describe("research planner", () => {
 
   it("reuses recent cached retrieval for follow-up on same topic", () => {
     const plan = decideResearchPlan({
-      message: "What are common risks?",
+      message: "Explain the above in plain language",
       context: {
         condition: "lung cancer",
         intent: "immunotherapy",
         symptoms: "",
         location: "Boston",
         question: "What are common risks?",
-        isFollowUp: true
+        isFollowUp: true,
       },
       conversation: {
         turns: [{ role: "user", message: "first" }],
         context: {
           condition: "lung cancer",
           intent: "immunotherapy",
-          location: "Boston"
+          location: "Boston",
         },
         cachedRetrieval: {
           selectedSources: {
             publications: [{ id: "P1" }],
-            clinicalTrials: []
+            clinicalTrials: [],
           },
-          cachedAt: new Date().toISOString()
-        }
-      }
+          cachedAt: new Date().toISOString(),
+        },
+      },
     });
 
     expect(plan.action).toBe("cached");
@@ -77,23 +80,23 @@ describe("research planner", () => {
         symptoms: "",
         location: "Toronto",
         question: "Any latest recruiting trials in Toronto?",
-        isFollowUp: true
+        isFollowUp: true,
       },
       conversation: {
         turns: [{ role: "user", message: "first" }],
         context: {
           condition: "parkinson disease",
           intent: "deep brain stimulation",
-          location: "Toronto"
+          location: "Toronto",
         },
         cachedRetrieval: {
           selectedSources: {
             publications: [{ id: "P1" }],
-            clinicalTrials: [{ id: "T1" }]
+            clinicalTrials: [{ id: "T1" }],
           },
-          cachedAt: new Date().toISOString()
-        }
-      }
+          cachedAt: new Date().toISOString(),
+        },
+      },
     });
 
     expect(plan.action).toBe("fresh");

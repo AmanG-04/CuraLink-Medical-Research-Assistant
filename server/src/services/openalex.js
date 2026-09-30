@@ -1,5 +1,7 @@
 import { config } from "../config/env.js";
 import { truncate } from "../utils/text.js";
+import { providerFetch } from "./http.js";
+import { studyDetails } from "./studyDetails.js";
 
 export function reconstructOpenAlexAbstract(index = {}) {
   const words = [];
@@ -24,7 +26,15 @@ export function normalizeOpenAlexWork(work) {
     type: "publication",
     source: "OpenAlex",
     title: work.title || work.display_name || "Untitled publication",
-    summary: truncate(reconstructOpenAlexAbstract(work.abstract_inverted_index), 900),
+    summary: truncate(
+      reconstructOpenAlexAbstract(work.abstract_inverted_index),
+      12000,
+    ),
+    studyType: work.type || "Not reported",
+    evidenceDetails: studyDetails(
+      reconstructOpenAlexAbstract(work.abstract_inverted_index),
+    ),
+    retracted: Boolean(work.is_retracted),
     authors: (work.authorships || [])
       .map((entry) => entry.author?.display_name)
       .filter(Boolean)
@@ -37,7 +47,7 @@ export function normalizeOpenAlexWork(work) {
     citedByCount: work.cited_by_count || 0,
     relevanceScore: work.relevance_score || 0,
     credibility: work.primary_location?.source?.is_core ? 1 : 0.72,
-    raw: work
+    raw: work,
   };
 }
 
@@ -50,7 +60,7 @@ export async function fetchOpenAlexPublications(context, fetcher = fetch) {
   url.searchParams.set("per-page", String(config.openAlexPageSize));
   url.searchParams.set("sort", "relevance_score:desc");
 
-  const response = await fetcher(url);
+  const response = await providerFetch(url, {}, fetcher);
   if (!response.ok) throw new Error(`OpenAlex returned ${response.status}`);
 
   const payload = await response.json();

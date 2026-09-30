@@ -6,6 +6,9 @@ function toInt(value, fallback) {
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) ? parsed : fallback;
 }
+function bounded(value, fallback, minimum, maximum) {
+  return Math.max(minimum, Math.min(maximum, toInt(value, fallback)));
+}
 
 export const config = {
   port: toInt(process.env.PORT, 5000),
@@ -14,19 +17,25 @@ export const config = {
   clientOrigin: process.env.CLIENT_ORIGIN || "http://localhost:5173",
   hfApiToken: process.env.HF_API_TOKEN || "",
   hfModel: process.env.HF_MODEL || "Qwen/Qwen2.5-7B-Instruct",
-  hfFallbackModels:
-    process.env.HF_FALLBACK_MODELS?.split(",").map((model) => model.trim()).filter(Boolean) || [
-      process.env.HF_FALLBACK_MODEL || "Qwen/Qwen2.5-1.5B-Instruct",
-      "Qwen/Qwen2.5-0.5B-Instruct"
-    ],
-  hfTimeoutMs: toInt(process.env.HF_TIMEOUT_MS, 30000),
+  hfFallbackModels: process.env.HF_FALLBACK_MODELS?.split(",")
+    .map((model) => model.trim())
+    .filter(Boolean) || [
+    process.env.HF_FALLBACK_MODEL || "Qwen/Qwen2.5-1.5B-Instruct",
+    "Qwen/Qwen2.5-0.5B-Instruct",
+  ],
+  hfTimeoutMs: bounded(process.env.HF_TIMEOUT_MS, 30000, 1000, 40000),
   ncbiApiKey: process.env.NCBI_API_KEY || "",
   ncbiTool: process.env.NCBI_TOOL || "curalink",
   ncbiEmail: process.env.NCBI_EMAIL || "",
-  openAlexPageSize: toInt(process.env.OPENALEX_PAGE_SIZE, 100),
-  pubMedRetMax: toInt(process.env.PUBMED_RETMAX, 80),
-  clinicalTrialsPageSize: toInt(process.env.CLINICAL_TRIALS_PAGE_SIZE, 80),
-  cacheTtlMinutes: toInt(process.env.API_CACHE_TTL_MINUTES, 30)
+  openAlexPageSize: bounded(process.env.OPENALEX_PAGE_SIZE, 100, 10, 100),
+  pubMedRetMax: bounded(process.env.PUBMED_RETMAX, 80, 10, 100),
+  clinicalTrialsPageSize: bounded(
+    process.env.CLINICAL_TRIALS_PAGE_SIZE,
+    80,
+    10,
+    100,
+  ),
+  cacheTtlMinutes: bounded(process.env.API_CACHE_TTL_MINUTES, 30, 1, 60),
 };
 
 export function allowedOrigins() {

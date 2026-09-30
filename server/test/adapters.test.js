@@ -1,17 +1,43 @@
 import { describe, expect, it } from "vitest";
-import { fetchClinicalTrials, normalizeClinicalTrial } from "../src/services/clinicalTrials.js";
-import { fetchOpenAlexPublications, reconstructOpenAlexAbstract } from "../src/services/openalex.js";
-import { fetchPubMedPublications, normalizePubMedArticle } from "../src/services/pubmed.js";
+import {
+  fetchClinicalTrials,
+  normalizeClinicalTrial,
+} from "../src/services/clinicalTrials.js";
+import {
+  fetchOpenAlexPublications,
+  reconstructOpenAlexAbstract,
+} from "../src/services/openalex.js";
+import {
+  fetchPubMedPublications,
+  normalizePubMedArticle,
+} from "../src/services/pubmed.js";
 
 describe("source adapters", () => {
+  it("preserves labeled abstract findings without inventing missing fields", () => {
+    const record = normalizePubMedArticle({
+      MedlineCitation: {
+        Article: {
+          Abstract: {
+            AbstractText: [
+              { Label: "Methods", text: "A source-reported method." },
+              { Label: "Results", text: "A source-reported result." },
+            ],
+          },
+        },
+      },
+    });
+    expect(record.evidenceDetails.methods).toBe("A source-reported method.");
+    expect(record.evidenceDetails.findings).toBe("A source-reported result.");
+    expect(record.evidenceDetails.population).toBeUndefined();
+  });
   it("reconstructs OpenAlex inverted abstracts", () => {
     expect(
       reconstructOpenAlexAbstract({
         Deep: [0],
         brain: [1],
         stimulation: [2],
-        helps: [3]
-      })
+        helps: [3],
+      }),
     ).toBe("Deep brain stimulation helps");
   });
 
@@ -28,18 +54,21 @@ describe("source adapters", () => {
               authorships: [{ author: { display_name: "A Researcher" } }],
               primary_location: {
                 landing_page_url: "https://example.org/paper",
-                source: { display_name: "Journal", is_core: true }
-              }
-            }
-          ]
-        })
+                source: { display_name: "Journal", is_core: true },
+              },
+            },
+          ],
+        }),
       );
 
-    const records = await fetchOpenAlexPublications({ query: "Parkinson DBS" }, fetcher);
+    const records = await fetchOpenAlexPublications(
+      { query: "Parkinson DBS" },
+      fetcher,
+    );
     expect(records[0]).toMatchObject({
       source: "OpenAlex",
       title: "Adaptive DBS",
-      year: 2024
+      year: 2024,
     });
   });
 
@@ -50,10 +79,13 @@ describe("source adapters", () => {
         Article: {
           ArticleTitle: "DBS outcomes",
           Abstract: { AbstractText: ["Useful summary"] },
-          Journal: { Title: "Neurology", JournalIssue: { PubDate: { Year: "2023" } } },
-          AuthorList: { Author: [{ ForeName: "Ada", LastName: "Lovelace" }] }
-        }
-      }
+          Journal: {
+            Title: "Neurology",
+            JournalIssue: { PubDate: { Year: "2023" } },
+          },
+          AuthorList: { Author: [{ ForeName: "Ada", LastName: "Lovelace" }] },
+        },
+      },
     });
 
     expect(record.url).toBe("https://pubmed.ncbi.nlm.nih.gov/12345/");
@@ -67,7 +99,7 @@ describe("source adapters", () => {
       if (href.includes("esearch.fcgi")) {
         return new Response(
           JSON.stringify({ esearchresult: { idlist: ["12345"] } }),
-          { headers: { "Content-Type": "application/json" } }
+          { headers: { "Content-Type": "application/json" } },
         );
       }
 
@@ -86,7 +118,10 @@ describe("source adapters", () => {
         </PubmedArticleSet>`);
     };
 
-    const records = await fetchPubMedPublications({ query: "Parkinson DBS" }, fetcher);
+    const records = await fetchPubMedPublications(
+      { query: "Parkinson DBS" },
+      fetcher,
+    );
     expect(records[0].title).toBe("DBS outcomes");
   });
 
@@ -95,23 +130,25 @@ describe("source adapters", () => {
       protocolSection: {
         identificationModule: {
           nctId: "NCT123",
-          briefTitle: "DBS feasibility study"
+          briefTitle: "DBS feasibility study",
         },
         statusModule: {
           overallStatus: "RECRUITING",
-          studyFirstPostDateStruct: { date: "2025-01-01" }
+          studyFirstPostDateStruct: { date: "2025-01-01" },
         },
         descriptionModule: {
-          briefSummary: "A brief summary"
+          briefSummary: "A brief summary",
         },
         eligibilityModule: {
-          eligibilityCriteria: "Inclusion Criteria: adults"
+          eligibilityCriteria: "Inclusion Criteria: adults",
         },
         contactsLocationsModule: {
           centralContacts: [{ name: "Study Desk", email: "study@example.org" }],
-          locations: [{ facility: "Clinic", city: "Toronto", country: "Canada" }]
-        }
-      }
+          locations: [
+            { facility: "Clinic", city: "Toronto", country: "Canada" },
+          ],
+        },
+      },
     });
 
     expect(record.url).toBe("https://clinicaltrials.gov/study/NCT123");
@@ -127,7 +164,7 @@ describe("source adapters", () => {
 
       if (calls.length === 1) {
         return new Response(JSON.stringify({ studies: [] }), {
-          headers: { "Content-Type": "application/json" }
+          headers: { "Content-Type": "application/json" },
         });
       }
 
@@ -138,22 +175,29 @@ describe("source adapters", () => {
               protocolSection: {
                 identificationModule: {
                   nctId: "NCT00053625",
-                  briefTitle: "Deep Brain Stimulation for Parkinson's Disease Trial"
+                  briefTitle:
+                    "Deep Brain Stimulation for Parkinson's Disease Trial",
                 },
                 statusModule: {
                   overallStatus: "COMPLETED",
-                  studyFirstPostDateStruct: { date: "2003-01-01" }
+                  studyFirstPostDateStruct: { date: "2003-01-01" },
                 },
                 descriptionModule: { briefSummary: "Trial summary" },
                 eligibilityModule: { eligibilityCriteria: "Adults" },
                 contactsLocationsModule: {
-                  locations: [{ city: "Atlanta", state: "Georgia", country: "United States" }]
-                }
-              }
-            }
-          ]
+                  locations: [
+                    {
+                      city: "Atlanta",
+                      state: "Georgia",
+                      country: "United States",
+                    },
+                  ],
+                },
+              },
+            },
+          ],
         }),
-        { headers: { "Content-Type": "application/json" } }
+        { headers: { "Content-Type": "application/json" } },
       );
     };
 
@@ -162,9 +206,9 @@ describe("source adapters", () => {
         condition: "Parkinson disease",
         intent: "DBS",
         question: "effects",
-        location: "United States"
+        location: "United States",
       },
-      fetcher
+      fetcher,
     );
 
     expect(records).toHaveLength(1);

@@ -8,3 +8,5 @@ coverage/
 .vite/
 .vercel/
 .cache/
+playwright-report/
+test-results/

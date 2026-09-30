@@ -3,13 +3,15 @@ const CHAT_ONLY_PATTERNS = [
   /^(thanks|thank you|thx)\b/i,
   /\bhow are you\b/i,
   /\bwho are you\b/i,
-  /\bwhat can you do\b/i
+  /\bwhat can you do\b/i,
 ];
+import { config } from "../config/env.js";
 
 const RESEARCH_HINT_PATTERN =
   /\b(research|paper|publication|trial|study|evidence|risk|outcome|disease|condition|treatment|therapy|symptom|diagnosis|drug|intervention|clinical)\b/i;
 
-const FRESHNESS_PATTERN = /\b(latest|recent|new|updated|current|today|this year|recruiting now)\b/i;
+const FRESHNESS_PATTERN =
+  /\b(latest|recent|new|updated|current|today|this year|recruiting now)\b/i;
 
 function normalizeMessage(message = "") {
   return String(message).trim().toLowerCase();
@@ -22,7 +24,11 @@ function hasSelectedSources(cachedRetrieval = {}) {
   return publicationCount + trialCount > 0;
 }
 
-function isCacheFresh(cachedRetrieval = {}, maxAgeMinutes = 30, now = new Date()) {
+function isCacheFresh(
+  cachedRetrieval = {},
+  maxAgeMinutes = 30,
+  now = new Date(),
+) {
   if (!cachedRetrieval?.cachedAt) return false;
   const cachedAt = new Date(cachedRetrieval.cachedAt);
   if (Number.isNaN(cachedAt.getTime())) return false;
@@ -41,7 +47,17 @@ function topicChanged(currentContext, previousContext = {}) {
   return (
     (nextCondition && prevCondition && nextCondition !== prevCondition) ||
     (nextIntent && prevIntent && nextIntent !== prevIntent) ||
-    (nextLocation && prevLocation && nextLocation !== prevLocation)
+    nextLocation !== prevLocation ||
+    [
+      "patientAge",
+      "patientMedications",
+      "patientComorbidities",
+      "symptoms",
+      "clinicalQuestionType",
+    ].some(
+      (field) =>
+        (currentContext[field] || "") !== (previousContext[field] || ""),
+    )
   );
 }
 
@@ -49,19 +65,28 @@ function isConversationalTurn(message, context) {
   const normalizedMessage = normalizeMessage(message);
   if (!normalizedMessage) return false;
 
-  const hasContext = Boolean(context.condition || context.intent || context.symptoms || context.location);
-  const looksLikeChatOnly = CHAT_ONLY_PATTERNS.some((pattern) => pattern.test(normalizedMessage));
+  const hasContext = Boolean(
+    context.condition || context.intent || context.symptoms || context.location,
+  );
+  const looksLikeChatOnly = CHAT_ONLY_PATTERNS.some((pattern) =>
+    pattern.test(normalizedMessage),
+  );
   const looksResearchOrMedical = RESEARCH_HINT_PATTERN.test(normalizedMessage);
 
   return !hasContext && looksLikeChatOnly && !looksResearchOrMedical;
 }
 
-export function decideResearchPlan({ message, context, conversation, now = new Date() }) {
+export function decideResearchPlan({
+  message,
+  context,
+  conversation,
+  now = new Date(),
+}) {
   const turns = conversation?.turns || [];
   const previousContext = conversation?.context || {};
   const cachedRetrieval = conversation?.cachedRetrieval || {};
   const hasCache = hasSelectedSources(cachedRetrieval);
-  const cacheFresh = isCacheFresh(cachedRetrieval, 30, now);
+  const cacheFresh = isCacheFresh(cachedRetrieval, config.cacheTtlMinutes, now);
   const normalizedMessage = normalizeMessage(message || context.question || "");
 
   if (isConversationalTurn(message, context)) {
@@ -81,9 +106,16 @@ export function decideResearchPlan({ message, context, conversation, now = new D
   }
 
   if (hasCache && cacheFresh) {
+    // Reuse only explanations of the existing answer, not arbitrary new questions.
+    if (
+      !/\b(explain|simplify|summarize|plain language|what does (this|that)|these sources|above|shorter)\b/i.test(
+        normalizedMessage,
+      )
+    )
+      return { action: "fresh", reason: "new_evidence_question" };
     return {
       action: "cached",
-      reason: context.isFollowUp ? "follow_up_cached" : "cache_reuse"
+      reason: context.isFollowUp ? "follow_up_cached" : "cache_reuse",
     };
   }
 
@@ -95,6 +127,6 @@ export function noResearchResponse() {
     "Condition Overview: I can help with evidence-based medical research questions. Share a condition, a focus area, or a follow-up question to begin.",
     "Research Insights: Not enough evidence. No medical research sources were requested for this turn.",
     "Clinical Trials: Not enough evidence. Add a condition and optional location to search ClinicalTrials.gov.",
-    "Source Attribution: No sources were retrieved in this turn."
+    "Source Attribution: No sources were retrieved in this turn.",
   ].join("\n\n");
 }

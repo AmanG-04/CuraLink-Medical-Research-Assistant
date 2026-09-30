@@ -13,12 +13,26 @@
     "test": "npm test --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
     "server": "npm run dev --workspace server",
-    "client": "npm run dev --workspace client"
+    "client": "npm run dev --workspace client",
+    "typecheck": "npm run typecheck --workspace client",
+    "test:e2e": "npm run test:e2e --workspace client",
+    "evaluate": "node server/evaluation/run.js",
+    "ci:check": "npm run lint && npm run typecheck && npm test && npm run evaluate && npm run build && npm run test:e2e"
   },
   "devDependencies": {
-    "concurrently": "^9.1.2"
+    "concurrently": "^9.2.3"
+  },
+  "overrides": {
+    "@babel/core": "^7.29.7",
+    "baseline-browser-mapping": "^2.11.26",
+    "browserslist": "^4.29.3",
+    "postcss": "^8.5.28",
+    "shell-quote": "^1.11.0",
+    "nanoid@^3": "^3.3.19",
+    "brace-expansion@^1": "^1.1.21",
+    "js-yaml@^4": "^4.3.2"
   },
   "engines": {
-    "node": ">=20.11.0"
+    "node": ">=22.12.0"
   }
 }

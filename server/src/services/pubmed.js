@@ -1,12 +1,14 @@
 import { XMLParser } from "fast-xml-parser";
 import { config } from "../config/env.js";
 import { arrayify, cleanText, truncate } from "../utils/text.js";
+import { providerFetch } from "./http.js";
+import { studyDetails } from "./studyDetails.js";
 
 const BASE_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils";
 const xmlParser = new XMLParser({
   ignoreAttributes: false,
   attributeNamePrefix: "",
-  textNodeName: "text"
+  textNodeName: "text",
 });
 
 function withNcbiParams(url) {
@@ -20,7 +22,10 @@ function abstractToText(abstractText) {
   return arrayify(abstractText)
     .map((part) => {
       if (typeof part === "string") return part;
-      if (typeof part === "object") return part.text || Object.values(part).join(" ");
+      if (typeof part === "object")
+        return [part.Label ? `${part.Label}:` : "", part.text || ""]
+          .filter(Boolean)
+          .join(" ");
       return "";
     })
     .filter(Boolean)
@@ -59,15 +64,23 @@ export function normalizePubMedArticle(pubmedArticle) {
     type: "publication",
     source: "PubMed",
     title,
-    summary: truncate(abstract, 900),
+    summary: truncate(abstract, 12000),
+    evidenceDetails: studyDetails(abstract),
+    studyType: arrayify(article.PublicationTypeList?.PublicationType)
+      .map((item) => (typeof item === "object" ? item.text : item))
+      .filter(Boolean)
+      .join(", "),
     authors,
     year: Number.parseInt(articleYear(article), 10) || null,
     journal: article.Journal?.Title || article.Journal?.ISOAbbreviation || "",
     url: pmid ? `https://pubmed.ncbi.nlm.nih.gov/${pmid}/` : "",
-    doi: "",
+    doi:
+      arrayify(pubmedArticle.PubmedData?.ArticleIdList?.ArticleId).find(
+        (item) => item.IdType === "doi",
+      )?.text || "",
     pmid,
     credibility: 1,
-    raw: pubmedArticle
+    raw: pubmedArticle,
   };
 }
 
@@ -82,8 +95,9 @@ export async function fetchPubMedPublications(context, fetcher = fetch) {
   searchUrl.searchParams.set("retmax", String(config.pubMedRetMax));
   searchUrl.searchParams.set("sort", "relevance");
 
-  const searchResponse = await fetcher(searchUrl);
-  if (!searchResponse.ok) throw new Error(`PubMed search returned ${searchResponse.status}`);
+  const searchResponse = await providerFetch(searchUrl, {}, fetcher);
+  if (!searchResponse.ok)
+    throw new Error(`PubMed search returned ${searchResponse.status}`);
   const searchPayload = await searchResponse.json();
   const ids = searchPayload.esearchresult?.idlist || [];
   if (ids.length === 0) return [];
@@ -93,8 +107,9 @@ export async function fetchPubMedPublications(context, fetcher = fetch) {
   fetchUrl.searchParams.set("id", ids.join(","));
   fetchUrl.searchParams.set("retmode", "xml");
 
-  const fetchResponse = await fetcher(fetchUrl);
-  if (!fetchResponse.ok) throw new Error(`PubMed fetch returned ${fetchResponse.status}`);
+  const fetchResponse = await providerFetch(fetchUrl, {}, fetcher);
+  if (!fetchResponse.ok)
+    throw new Error(`PubMed fetch returned ${fetchResponse.status}`);
   const xml = await fetchResponse.text();
   const parsed = xmlParser.parse(xml);
   const articles = arrayify(parsed.PubmedArticleSet?.PubmedArticle);
